@@ -4,9 +4,11 @@ A low-cost web app for designing business cards in 2D and exporting them as SVG,
 
 ## MVP Features
 
-- US standard business card canvas: `3.5in x 2in`
-- Front/back card sides
-- Drag text and shape elements anywhere on the card
+- Preset card sizes including US standard `3.5in x 2in`, EU standard `85mm x 55mm`, square, and custom dimensions
+- Custom card size entry in millimeters or inches
+- Front-only card design surface, because a back side would make the printable STL workflow unreliable
+- Mobile-friendly editing with a top action bar, tap-to-select, drag-to-move, and double-tap text editing
+- Dedicated export screen with a card preview and save/export actions
 - Import simple SVG logo paths
 - Add QR placeholders
 - Choose fonts, colors, element depth, and print mode
@@ -14,6 +16,7 @@ A low-cost web app for designing business cards in 2D and exporting them as SVG,
 - Browser-side STL export for cheap hosting
 - Printability warnings for thin details, off-card elements, and invalid engraving depth
 - Cloudflare Pages/Workers/D1 backend skeleton
+- Google SSO skeleton that stores saves and STL credits by verified email
 - Stripe Checkout skeleton for paid STL export credits
 
 ## Tech Stack
@@ -59,6 +62,9 @@ npx wrangler d1 migrations apply og-business-cards
 npx wrangler pages secret put STRIPE_SECRET_KEY
 npx wrangler pages secret put STRIPE_WEBHOOK_SECRET
 npx wrangler pages secret put APP_URL
+npx wrangler pages secret put AUTH_SECRET
+npx wrangler pages secret put GOOGLE_CLIENT_ID
+npx wrangler pages secret put GOOGLE_CLIENT_SECRET
 ```
 
 5. Deploy:
@@ -71,4 +77,18 @@ npm run worker:deploy
 
 Each user gets two free STL exports. After that, the app sends them to Stripe Checkout for a `$5` STL export credit.
 
-The current MVP uses the `X-User-Email` header as a lightweight development identity mechanism. Replace this with production magic-link or OAuth auth before taking real payments.
+Credits are stored against the signed-in Google account email. The backend still accepts the `X-User-Email` header as a local development fallback, but production should use Google SSO.
+
+## Google SSO
+
+Create a Google OAuth web client with this redirect URL:
+
+```txt
+https://your-domain.com/api/auth/google/callback
+```
+
+Set `APP_URL` to the deployed site origin, for example:
+
+```txt
+https://your-domain.com
+```

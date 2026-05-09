@@ -1,48 +1,198 @@
-import { ChangeEvent, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, BadgePlus, Box, Circle, CreditCard, Download, FileText, Image, Save, Square, Type } from "lucide-react";
-import { Layer, Rect, Stage, Text as KonvaText } from "react-konva";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  Box,
+  CreditCard,
+  Trash2,
+  Download,
+  FileText,
+  Image,
+  FilePlus2,
+  HelpCircle,
+  Layers,
+  LogIn,
+  LogOut,
+  Mail,
+  MoveHorizontal,
+  MoveVertical,
+  Palette,
+  Redo2,
+  RotateCw,
+  Ruler,
+  Save,
+  Settings,
+  Type,
+  Undo2,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import { Group, Layer, Rect, Stage, Text as KonvaText } from "react-konva";
 import QRCode from "qrcode";
-import { authorizeStlExport, createStlCheckout, saveDesignToCloud } from "../lib/api";
-import { designToSvg, downloadText, downloadUrl, exportPdf, safeName } from "../lib/export2d";
+import {
+  authorizeStlExport,
+  createStlCheckout,
+  getCurrentUser,
+  logout,
+  saveDesignToCloud,
+  SessionUser,
+  startGoogleLogin,
+} from "../lib/api";
+import { designToSvg, downloadText, exportPdf, exportPngFromDesign, safeName } from "../lib/export2d";
 import { validatePrintability } from "../lib/printability";
+import { createQrMatrix } from "../lib/qr";
 import { extractSafeSvgPathData } from "../lib/sanitizeSvg";
 import { designToAsciiStl } from "../lib/stl";
 import { loadLocalDesign, loadUserEmail, saveLocalDesign, saveUserEmail } from "../lib/storage";
 import {
   CARD_SIZES,
+  CardSide,
   CardElement,
-  CardSideName,
   createInitialDesign,
   Design,
+  getCardSize,
   getElementSize,
+  inchesToMm,
+  mmToInches,
   mmToPx,
   PRINT_DEFAULTS,
   pxToMm,
 } from "../shared/design";
 import { ThreePreview } from "./ThreePreview";
 
-const SCALE = 8;
+const MAX_SCALE = 8;
+const MAX_HISTORY = 80;
 const FONTS = ["Inter", "Arial", "Georgia", "Courier New", "Trebuchet MS"];
 
+interface DesignHistory {
+  past: Design[];
+  present: Design;
+  future: Design[];
+}
+
 export function App() {
-  const [design, setDesign] = useState<Design>(() => loadLocalDesign() ?? createInitialDesign());
-  const [activeSide, setActiveSide] = useState<CardSideName>("front");
-  const [selectedId, setSelectedId] = useState(design.sides.front.elements[0]?.id ?? "");
+  const [history, setHistory] = useState<DesignHistory>(() => ({
+    past: [],
+    present: migrateFrontOnly(loadLocalDesign() ?? createInitialDesign()),
+    future: [],
+  }));
+  const design = history.present;
+  const [selectedId, setSelectedId] = useState(design.side.elements[0]?.id ?? "");
   const [email, setEmail] = useState(loadUserEmail());
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [view, setView] = useState<"editor" | "export">("editor");
   const [status, setStatus] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [fitScale, setFitScale] = useState(MAX_SCALE);
+  const [zoom, setZoom] = useState(1);
   const stageRef = useRef<any>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const size = CARD_SIZES[design.cardSize];
-  const side = design.sides[activeSide] ?? design.sides.front;
-  const selected = side.elements.find((element) => element.id === selectedId);
+  const lastTapRef = useRef<{ id: string; time: number }>({ id: "", time: 0 });
+  const panRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const size = getCardSize(design);
+  const scale = fitScale * zoom;
+  const selected = design.side.elements.find((element) => element.id === selectedId);
   const warnings = useMemo(() => validatePrintability(design), [design]);
 
+  useEffect(() => {
+    saveLocalDesign(design);
+  }, [design]);
+
+  useEffect(() => () => stopViewportPan(), []);
+
+  useEffect(() => {
+    getCurrentUser().then(setUser).catch(() => setUser(null));
+  }, []);
+
+  useEffect(() => {
+    const element = editorRef.current;
+    if (!element) {
+      return;
+    }
+
+    const resize = () => {
+      const available = element.clientWidth - 24;
+      setFitScale(Math.min(MAX_SCALE, Math.max(3.2, available / size.widthMm)));
+    };
+
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [size.widthMm]);
+
   function updateDesign(updater: (current: Design) => Design) {
-    setDesign((current) => {
-      const next = { ...updater(current), updatedAt: new Date().toISOString() };
-      saveLocalDesign(next);
-      return next;
+    setHistory((current) => {
+      const next = { ...updater(current.present), updatedAt: new Date().toISOString() };
+      return {
+        past: [...current.past, current.present].slice(-MAX_HISTORY),
+        present: next,
+        future: [],
+      };
     });
+  }
+
+  function undo() {
+    setHistory((current) => {
+      const previous = current.past.at(-1);
+      if (!previous) {
+        return current;
+      }
+      setSelectedId("");
+      return {
+        past: current.past.slice(0, -1),
+        present: previous,
+        future: [current.present, ...current.future].slice(0, MAX_HISTORY),
+      };
+    });
+  }
+
+  function redo() {
+    setHistory((current) => {
+      const next = current.future[0];
+      if (!next) {
+        return current;
+      }
+      setSelectedId("");
+      return {
+        past: [...current.past, current.present].slice(-MAX_HISTORY),
+        present: next,
+        future: current.future.slice(1),
+      };
+    });
+  }
+
+  function newCard() {
+    const fresh = createInitialDesign();
+    updateDesign((current) => ({
+      ...fresh,
+      id: current.id,
+      ownerId: current.ownerId,
+      name: current.name,
+      side: {
+        ...fresh.side,
+        elements: [],
+      },
+    }));
+    setSelectedId("");
+    setShowSettings(false);
+    setStatus("Started a new blank card.");
+  }
+
+  function zoomIn() {
+    setZoom((current) => Math.min(2.5, Number((current + 0.15).toFixed(2))));
+  }
+
+  function zoomOut() {
+    setZoom((current) => Math.max(0.55, Number((current - 0.15).toFixed(2))));
+  }
+
+  function openSettings() {
+    setSelectedId("");
+    setShowSettings((value) => (selected ? true : !value));
   }
 
   function updateSelected(patch: Partial<CardElement>) {
@@ -51,16 +201,25 @@ export function App() {
     }
     updateDesign((current) => ({
       ...current,
-      sides: {
-        ...current.sides,
-        [activeSide]: {
-          ...side,
-          elements: side.elements.map((element) =>
-            element.id === selected.id ? ({ ...element, ...patch } as CardElement) : element,
-          ),
-        },
+      side: {
+        ...current.side,
+        elements: current.side.elements.map((element) =>
+          element.id === selected.id ? ({ ...element, ...patch } as CardElement) : element,
+        ),
       },
     }));
+  }
+
+  function appendElement(element: CardElement) {
+    updateDesign((current) => ({
+      ...current,
+      side: {
+        ...current.side,
+        elements: [...current.side.elements, element],
+      },
+    }));
+    setSelectedId(element.id);
+    setShowSettings(true);
   }
 
   function addText() {
@@ -78,10 +237,11 @@ export function App() {
       depthMm: PRINT_DEFAULTS.raisedDepthMm,
     };
     appendElement(element);
+    editText(element);
   }
 
   function addShape(shape: "rect" | "circle") {
-    const element: CardElement = {
+    appendElement({
       id: crypto.randomUUID(),
       type: "shape",
       shape,
@@ -93,8 +253,7 @@ export function App() {
       color: shape === "rect" ? "#cf4f35" : "#2f7c6b",
       mode: "raised",
       depthMm: PRINT_DEFAULTS.raisedDepthMm,
-    };
-    appendElement(element);
+    });
   }
 
   async function addQr() {
@@ -103,7 +262,7 @@ export function App() {
       return;
     }
     await QRCode.toDataURL(value);
-    const element: CardElement = {
+    appendElement({
       id: crypto.randomUUID(),
       type: "qr",
       value,
@@ -115,22 +274,7 @@ export function App() {
       color: "#1c1c1a",
       mode: "raised",
       depthMm: PRINT_DEFAULTS.raisedDepthMm,
-    };
-    appendElement(element);
-  }
-
-  function appendElement(element: CardElement) {
-    updateDesign((current) => ({
-      ...current,
-      sides: {
-        ...current.sides,
-        [activeSide]: {
-          ...side,
-          elements: [...side.elements, element],
-        },
-      },
-    }));
-    setSelectedId(element.id);
+    });
   }
 
   async function importSvg(event: ChangeEvent<HTMLInputElement>) {
@@ -163,218 +307,505 @@ export function App() {
   }
 
   async function saveCloud() {
-    if (!email.includes("@")) {
-      setStatus("Enter an email before saving to Cloudflare.");
+    const fallbackEmail = email.includes("@") ? email : undefined;
+    if (!user && !fallbackEmail) {
+      setStatus("Sign in with Google before saving.");
       return;
     }
-    saveUserEmail(email);
-    await saveDesignToCloud(design, email);
+    if (fallbackEmail) {
+      saveUserEmail(fallbackEmail);
+    }
+    await saveDesignToCloud(design, fallbackEmail);
     setStatus("Design saved.");
   }
 
   async function exportStl() {
-    if (email.includes("@")) {
-      const result = await authorizeStlExport(email);
+    const errors = validatePrintability(design).filter((warning) => warning.severity === "error");
+    if (errors.length > 0) {
+      setStatus(`Fix ${errors.length} printability error${errors.length === 1 ? "" : "s"} before STL export.`);
+      return;
+    }
+
+    const fallbackEmail = email.includes("@") ? email : undefined;
+    if (user || fallbackEmail) {
+      const result = await authorizeStlExport(fallbackEmail);
       if (!result.allowed) {
-        const checkout = await createStlCheckout(email);
+        const checkout = await createStlCheckout(fallbackEmail);
         window.location.href = checkout.checkoutUrl;
         return;
       }
     }
 
-    const stl = designToAsciiStl(design);
-    downloadText(`${safeName(design.name)}.stl`, stl, "model/stl");
-    setStatus(email.includes("@") ? "STL export authorized and downloaded." : "Local STL downloaded without cloud billing.");
+    downloadText(`${safeName(design.name)}.stl`, designToAsciiStl(design), "model/stl");
+    setStatus(user || fallbackEmail ? "STL export authorized and downloaded." : "Local STL downloaded without cloud billing.");
   }
 
-  function exportPng() {
-    const url = stageRef.current?.toDataURL({ pixelRatio: 3 });
-    if (url) {
-      downloadUrl(`${safeName(design.name)}.png`, url);
+  function selectElement(element: CardElement) {
+    setSelectedId(element.id);
+    const now = Date.now();
+    if (element.type === "text" && lastTapRef.current.id === element.id && now - lastTapRef.current.time < 360) {
+      editText(element);
+    }
+    lastTapRef.current = { id: element.id, time: now };
+  }
+
+  function editText(element: CardElement) {
+    if (element.type !== "text") {
+      return;
+    }
+    const next = window.prompt("Edit text", element.text);
+    if (next !== null) {
+      updateElement(element.id, { text: next } as Partial<CardElement>);
+    }
+  }
+
+  function updateElement(id: string, patch: Partial<CardElement>) {
+    updateDesign((current) => ({
+      ...current,
+      side: {
+        ...current.side,
+        elements: current.side.elements.map((element) => (element.id === id ? ({ ...element, ...patch } as CardElement) : element)),
+      },
+    }));
+  }
+
+  function updateSelectedPosition(id: string, x: number, y: number) {
+    const element = design.side.elements.find((item) => item.id === id);
+    if (!element) {
+      return;
+    }
+
+    const nextX = pxToMm(x, scale);
+    const nextY = pxToMm(y, scale);
+    if (isElementFullyOffCard(element, nextX, nextY, design)) {
+      deleteElement(id);
+      setStatus("Element removed because it was moved off the card.");
+      return;
+    }
+
+    updateElement(id, { xMm: nextX, yMm: nextY });
+  }
+
+  function startViewportPan(clientX: number, clientY: number) {
+    const viewport = viewportRef.current;
+    if (!viewport || zoom <= 1 || (viewport.scrollWidth <= viewport.clientWidth && viewport.scrollHeight <= viewport.clientHeight)) {
+      return;
+    }
+
+    panRef.current = {
+      x: clientX,
+      y: clientY,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+    };
+
+    window.addEventListener("mousemove", panWithMouse);
+    window.addEventListener("mouseup", stopViewportPan);
+    window.addEventListener("touchmove", panWithTouch, { passive: false });
+    window.addEventListener("touchend", stopViewportPan);
+  }
+
+  function panWithMouse(event: MouseEvent) {
+    panViewport(event.clientX, event.clientY);
+  }
+
+  function panWithTouch(event: TouchEvent) {
+    if (event.touches[0]) {
+      event.preventDefault();
+      panViewport(event.touches[0].clientX, event.touches[0].clientY);
+    }
+  }
+
+  function panViewport(clientX: number, clientY: number) {
+    const viewport = viewportRef.current;
+    const pan = panRef.current;
+    if (!viewport || !pan) {
+      return;
+    }
+    viewport.scrollLeft = pan.scrollLeft - (clientX - pan.x);
+    viewport.scrollTop = pan.scrollTop - (clientY - pan.y);
+  }
+
+  function stopViewportPan() {
+    panRef.current = null;
+    window.removeEventListener("mousemove", panWithMouse);
+    window.removeEventListener("mouseup", stopViewportPan);
+    window.removeEventListener("touchmove", panWithTouch);
+    window.removeEventListener("touchend", stopViewportPan);
+  }
+
+  function handleEmptyCanvasPointerStart(event: any) {
+    setSelectedId("");
+    const nativeEvent = event.evt as MouseEvent | TouchEvent;
+    if ("touches" in nativeEvent) {
+      const touch = nativeEvent.touches[0];
+      if (touch) {
+        startViewportPan(touch.clientX, touch.clientY);
+      }
+      return;
+    }
+    startViewportPan(nativeEvent.clientX, nativeEvent.clientY);
+  }
+
+  if (view === "export") {
+    return (
+      <ExportScreen
+        design={design}
+        user={user}
+        status={status}
+        warnings={warnings}
+        fallbackEmail={email}
+        setFallbackEmail={setEmail}
+        setStatus={setStatus}
+        saveCloud={saveCloud}
+        exportStl={exportStl}
+        back={() => setView("editor")}
+        buyCredit={async () => {
+          const checkout = await createStlCheckout(email.includes("@") ? email : undefined);
+          window.location.href = checkout.checkoutUrl;
+        }}
+        refreshUser={async () => setUser(await getCurrentUser())}
+      />
+    );
+  }
+
+  return (
+    <main className="mobile-shell">
+      <header className="top-bar">
+        <div className="brand-strip">
+          <input
+            className="name-input"
+            value={design.name}
+            aria-label="Design name"
+            onChange={(event) => updateDesign((current) => ({ ...current, name: event.target.value }))}
+          />
+          <button title="Guide" aria-label="Guide" onClick={() => setShowGuide(true)}>
+            <HelpCircle size={19} />
+          </button>
+          <button title="Settings" aria-label="Settings" onClick={openSettings}>
+            <Settings size={19} />
+          </button>
+        </div>
+
+        <div className="action-bar" aria-label="Add and export tools">
+          <IconButton label="Undo" icon={<Undo2 size={19} />} onClick={undo} disabled={history.past.length === 0} />
+          <IconButton label="Redo" icon={<Redo2 size={19} />} onClick={redo} disabled={history.future.length === 0} />
+          <IconButton label="New card" icon={<FilePlus2 size={19} />} onClick={newCard} />
+          <IconButton label="Zoom out" icon={<ZoomOut size={19} />} onClick={zoomOut} disabled={zoom <= 0.55} />
+          <IconButton label="Zoom in" icon={<ZoomIn size={19} />} onClick={zoomIn} disabled={zoom >= 2.5} />
+          <IconButton label="Add text" icon={<Type size={19} />} onClick={addText} />
+          <IconButton label="Add QR" icon={<QrIcon />} onClick={addQr} />
+          <IconButton label="Import SVG" icon={<Image size={19} />} onClick={() => fileInputRef.current?.click()} />
+          <IconButton label="Save" icon={<Save size={19} />} onClick={saveCloud} />
+          <IconButton label="Export" icon={<Download size={19} />} onClick={() => setView("export")} />
+        </div>
+        <input ref={fileInputRef} type="file" accept=".svg,image/svg+xml" hidden onChange={importSvg} />
+      </header>
+
+      <section className="editor-focus" ref={editorRef}>
+        <div className="card-meta">
+          <span>{size.label}</span>
+          <span>{size.widthMm}mm x {size.heightMm}mm x {design.thicknessMm}mm · {Math.round(zoom * 100)}%</span>
+        </div>
+
+        <div className="canvas-wrap" ref={viewportRef}>
+          <Stage
+            ref={stageRef}
+            width={mmToPx(size.widthMm, scale)}
+            height={mmToPx(size.heightMm, scale)}
+            onMouseDown={(event) => event.target === event.target.getStage() && handleEmptyCanvasPointerStart(event)}
+            onTouchStart={(event) => event.target === event.target.getStage() && handleEmptyCanvasPointerStart(event)}
+          >
+            <Layer>
+              <Rect
+                width={mmToPx(size.widthMm, scale)}
+                height={mmToPx(size.heightMm, scale)}
+                fill={design.side.backgroundColor}
+                onMouseDown={handleEmptyCanvasPointerStart}
+                onTouchStart={handleEmptyCanvasPointerStart}
+              />
+              {design.side.elements.map((element) => (
+                <DesignNode
+                  key={element.id}
+                  element={element}
+                  scale={scale}
+                  selected={element.id === selectedId}
+                  onSelect={() => selectElement(element)}
+                  onEdit={() => editText(element)}
+                  onDragEnd={(x, y) => updateSelectedPosition(element.id, x, y)}
+                />
+              ))}
+            </Layer>
+          </Stage>
+        </div>
+      </section>
+
+      <section className={`bottom-sheet ${selected || showSettings ? "open" : ""}`}>
+        {selected ? (
+          <Controls selected={selected} updateSelected={updateSelected} deleteSelected={deleteSelected} />
+        ) : (
+          <SettingsPanel
+            design={design}
+            email={email}
+            status={status}
+            warnings={warnings}
+            setEmail={setEmail}
+            updateDesign={updateDesign}
+            user={user}
+            signIn={startGoogleLogin}
+            signOut={async () => {
+              await logout();
+              setUser(null);
+              setStatus("Signed out.");
+            }}
+          />
+        )}
+      </section>
+
+      <section className="preview-section">
+        <ThreePreview design={design} />
+      </section>
+
+      {showGuide && <GuideDialog close={() => setShowGuide(false)} />}
+    </main>
+  );
+
+  function deleteSelected() {
+    if (!selected) {
+      return;
+    }
+    deleteElement(selected.id);
+  }
+
+  function deleteElement(id: string) {
+    updateDesign((current) => ({
+      ...current,
+      side: {
+        ...current.side,
+        elements: current.side.elements.filter((element) => element.id !== id),
+      },
+    }));
+    setSelectedId("");
+  }
+}
+
+function ExportScreen(props: {
+  design: Design;
+  user: SessionUser | null;
+  status: string;
+  warnings: ReturnType<typeof validatePrintability>;
+  fallbackEmail: string;
+  setFallbackEmail: (email: string) => void;
+  setStatus: (status: string) => void;
+  saveCloud: () => Promise<void>;
+  exportStl: () => Promise<void>;
+  buyCredit: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+  back: () => void;
+}) {
+  const size = getCardSize(props.design);
+  const svg = designToSvg(props.design);
+
+  async function runExport(action: () => void | Promise<void>, success: string) {
+    try {
+      await action();
+      props.setStatus(success);
+      await props.refreshUser();
+    } catch (error) {
+      props.setStatus(error instanceof Error ? error.message : "Export failed.");
     }
   }
 
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
+    <main className="export-shell">
+      <header className="export-header">
+        <button title="Back to editor" aria-label="Back to editor" onClick={props.back}>
+          <ArrowLeft size={20} />
+        </button>
         <div>
-          <p className="eyebrow">OG Business Cards</p>
-          <input
-            className="title-input"
-            value={design.name}
-            onChange={(event) => updateDesign((current) => ({ ...current, name: event.target.value }))}
-          />
+          <strong>Export</strong>
+          <span>{props.design.name}</span>
         </div>
+      </header>
 
-        <div className="field">
-          <label>Email for saves and paid STL export</label>
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
-        </div>
-
-        <div className="segmented">
-          <button className={activeSide === "front" ? "active" : ""} onClick={() => setActiveSide("front")}>Front</button>
-          <button className={activeSide === "back" ? "active" : ""} onClick={() => setActiveSide("back")}>Back</button>
-        </div>
-
-        <div className="tool-grid">
-          <IconButton label="Add text" icon={<Type size={18} />} onClick={addText} />
-          <IconButton label="Rectangle" icon={<Square size={18} />} onClick={() => addShape("rect")} />
-          <IconButton label="Circle" icon={<Circle size={18} />} onClick={() => addShape("circle")} />
-          <IconButton label="QR code" icon={<BadgePlus size={18} />} onClick={addQr} />
-          <IconButton label="SVG logo" icon={<Image size={18} />} onClick={() => fileInputRef.current?.click()} />
-          <IconButton label="Save" icon={<Save size={18} />} onClick={saveCloud} />
-        </div>
-        <input ref={fileInputRef} type="file" accept=".svg,image/svg+xml" hidden onChange={importSvg} />
-
-        <Controls selected={selected} updateSelected={updateSelected} />
-
-        <div className="export-list">
-          <button onClick={() => downloadText(`${safeName(design.name)}.svg`, designToSvg(design, activeSide), "image/svg+xml")}>
-            <FileText size={17} /> SVG
-          </button>
-          <button onClick={exportPng}>
-            <Download size={17} /> PNG
-          </button>
-          <button onClick={() => exportPdf(design)}>
-            <FileText size={17} /> PDF
-          </button>
-          <button onClick={exportStl}>
-            <Box size={17} /> STL
-          </button>
-          <button onClick={async () => email.includes("@") && (window.location.href = (await createStlCheckout(email)).checkoutUrl)}>
-            <CreditCard size={17} /> Buy STL credit
-          </button>
-        </div>
-
-        <p className="status">{status}</p>
-      </aside>
-
-      <section className="workspace">
-        <div className="editor-header">
-          <div>
-            <strong>{size.label}</strong>
-            <span>{size.widthMm}mm x {size.heightMm}mm x {design.thicknessMm}mm</span>
-          </div>
-          <label>
-            Thickness
-            <input
-              type="number"
-              min="0.8"
-              step="0.1"
-              value={design.thicknessMm}
-              onChange={(event) => updateDesign((current) => ({ ...current, thicknessMm: Number(event.target.value) }))}
-            />
-          </label>
-        </div>
-
-        <div className="canvas-row">
-          <div className="canvas-wrap">
-            <Stage ref={stageRef} width={mmToPx(size.widthMm, SCALE)} height={mmToPx(size.heightMm, SCALE)}>
-              <Layer>
-                <Rect width={mmToPx(size.widthMm, SCALE)} height={mmToPx(size.heightMm, SCALE)} fill={side.backgroundColor} />
-                {side.elements.map((element) => (
-                  <DesignNode
-                    key={element.id}
-                    element={element}
-                    selected={element.id === selectedId}
-                    onSelect={() => setSelectedId(element.id)}
-                    onDragEnd={(x, y) => updateSelectedPosition(element.id, x, y)}
-                  />
-                ))}
-              </Layer>
-            </Stage>
-          </div>
-          <ThreePreview design={design} />
-        </div>
-
-        <div className="warnings">
-          {warnings.length === 0 ? (
-            <span>Printability checks are clear.</span>
-          ) : (
-            warnings.map((warning) => (
-              <button key={warning.id} className={warning.severity} onClick={() => setSelectedId(warning.id.split("-")[0])}>
-                {warning.message}
-              </button>
-            ))
-          )}
-        </div>
+      <section className="export-preview">
+        <ThreePreview design={props.design} />
+        <span>{size.widthMm}mm x {size.heightMm}mm x {props.design.thicknessMm}mm</span>
       </section>
+
+      <section className="export-account">
+        {props.user ? (
+          <div>
+            <strong>{props.user.email}</strong>
+            <span>
+              {Math.max(0, 2 - props.user.stlExportCount)} free STL exports left · {props.user.paidExportCredits} paid credits
+            </span>
+          </div>
+        ) : (
+          <>
+            <button className="export-login" onClick={startGoogleLogin}>
+              <LogIn size={18} /> Sign in with Google
+            </button>
+            <label>
+              Dev fallback email
+              <input value={props.fallbackEmail} onChange={(event) => props.setFallbackEmail(event.target.value)} placeholder="you@example.com" />
+            </label>
+          </>
+        )}
+      </section>
+
+      <section className="export-options">
+        <button onClick={() => runExport(() => downloadText(`${safeName(props.design.name)}.svg`, svg, "image/svg+xml"), "SVG downloaded.")}>
+          <FileText size={20} />
+          <span>SVG</span>
+        </button>
+        <button onClick={() => runExport(() => exportPngFromDesign(props.design), "PNG downloaded.")}>
+          <Download size={20} />
+          <span>PNG</span>
+        </button>
+        <button onClick={() => runExport(() => exportPdf(props.design), "PDF export started.")}>
+          <FileText size={20} />
+          <span>PDF</span>
+        </button>
+        <button onClick={() => runExport(props.exportStl, "STL downloaded.")}>
+          <Box size={20} />
+          <span>STL</span>
+        </button>
+        <button onClick={() => runExport(props.saveCloud, "Design saved.")}>
+          <Save size={20} />
+          <span>Save</span>
+        </button>
+        <button onClick={() => runExport(props.buyCredit, "Opening checkout.")}>
+          <CreditCard size={20} />
+          <span>Buy STL credit</span>
+        </button>
+      </section>
+
+      <section className="export-warnings">
+        {props.warnings.length === 0 ? (
+          <span>Printability checks are clear.</span>
+        ) : (
+          props.warnings.map((warning) => (
+            <span key={warning.id} className={warning.severity}>
+              {warning.message}
+            </span>
+          ))
+        )}
+      </section>
+      <p className="export-status">{props.status}</p>
     </main>
   );
-
-  function updateSelectedPosition(id: string, x: number, y: number) {
-    updateDesign((current) => ({
-      ...current,
-      sides: {
-        ...current.sides,
-        [activeSide]: {
-          ...side,
-          elements: side.elements.map((element) =>
-            element.id === id ? { ...element, xMm: pxToMm(x, SCALE), yMm: pxToMm(y, SCALE) } : element,
-          ),
-        },
-      },
-    }));
-  }
 }
 
 function DesignNode(props: {
   element: CardElement;
+  scale: number;
   selected: boolean;
   onSelect: () => void;
+  onEdit: () => void;
   onDragEnd: (x: number, y: number) => void;
 }) {
-  const { element } = props;
+  const { element, scale } = props;
   const size = getElementSize(element);
   const common = {
-    x: mmToPx(element.xMm, SCALE),
-    y: mmToPx(element.yMm, SCALE),
+    x: mmToPx(element.xMm, scale),
+    y: mmToPx(element.yMm, scale),
     rotation: element.rotationDeg,
     draggable: true,
     onClick: props.onSelect,
     onTap: props.onSelect,
+    onDblClick: props.onEdit,
+    onDblTap: props.onEdit,
     onDragEnd: (event: any) => props.onDragEnd(event.target.x(), event.target.y()),
-    shadowColor: props.selected ? "#2f7c6b" : "transparent",
-    shadowBlur: props.selected ? 8 : 0,
   };
 
   if (element.type === "text") {
     return (
-      <KonvaText
-        {...common}
-        text={element.text}
-        fontFamily={element.fontFamily}
-        fontSize={mmToPx(element.fontSizeMm, SCALE)}
-        fill={element.mode === "cut" ? "#ffffff" : element.color}
-        stroke={element.mode === "cut" ? "#cf4f35" : undefined}
-        strokeWidth={element.mode === "cut" ? 1 : 0}
-      />
+      <Group {...common}>
+        {props.selected && (
+          <Rect
+            width={mmToPx(size.widthMm, scale)}
+            height={mmToPx(size.heightMm, scale)}
+            stroke="#2f7c6b"
+            strokeWidth={1}
+            dash={[4, 4]}
+          />
+        )}
+        <KonvaText
+          text={element.text}
+          fontFamily={element.fontFamily}
+          fontSize={mmToPx(element.fontSizeMm, scale)}
+          fill={element.color}
+          stroke={element.mode === "cut" ? "#cf4f35" : undefined}
+          strokeWidth={element.mode === "cut" ? 1 : 0}
+        />
+      </Group>
+    );
+  }
+
+  if (element.type === "qr") {
+    const matrix = createQrMatrix(element.value);
+    const moduleSize = mmToPx(element.widthMm / matrix.size, scale);
+    return (
+      <Group {...common}>
+        {props.selected && (
+          <Rect
+            width={mmToPx(size.widthMm, scale)}
+            height={mmToPx(size.heightMm, scale)}
+            stroke="#2f7c6b"
+            strokeWidth={1}
+            dash={[4, 4]}
+          />
+        )}
+        {matrix.modules.map(({ row, col }) => (
+          <Rect
+            key={`${row}-${col}`}
+            x={col * moduleSize}
+            y={row * moduleSize}
+            width={moduleSize}
+            height={moduleSize}
+            fill={element.mode === "cut" ? "#ffffff" : element.color}
+            stroke={element.mode === "cut" ? "#cf4f35" : undefined}
+            strokeWidth={element.mode === "cut" ? 0.35 : 0}
+          />
+        ))}
+      </Group>
     );
   }
 
   return (
     <Rect
       {...common}
-      width={mmToPx(size.widthMm, SCALE)}
-      height={mmToPx(size.heightMm, SCALE)}
+      width={mmToPx(size.widthMm, scale)}
+      height={mmToPx(size.heightMm, scale)}
       fill={element.mode === "cut" ? "#ffffff" : element.color}
       stroke={element.mode === "cut" ? "#cf4f35" : props.selected ? "#2f7c6b" : undefined}
       strokeWidth={element.mode === "cut" || props.selected ? 2 : 0}
-      cornerRadius={element.type === "shape" && element.shape === "circle" ? mmToPx(size.heightMm / 2, SCALE) : 2}
+      cornerRadius={element.type === "shape" && element.shape === "circle" ? mmToPx(size.heightMm / 2, scale) : 2}
     />
   );
 }
 
-function Controls(props: { selected?: CardElement; updateSelected: (patch: Partial<CardElement>) => void }) {
+function Controls(props: {
+  selected: CardElement;
+  updateSelected: (patch: Partial<CardElement>) => void;
+  deleteSelected: () => void;
+}) {
   const { selected } = props;
-  if (!selected) {
-    return <div className="panel-empty">Select an element to edit it.</div>;
-  }
 
   return (
-    <div className="panel">
+    <div className="control-panel">
+      <button className="delete-button wide" onClick={props.deleteSelected}>
+        <Trash2 size={17} /> Delete selected element
+      </button>
+      {selected.type === "text" && (
+        <label className="wide">
+          <FieldIcon title="Text" icon={<Type size={18} />} />
+          <input value={selected.text} onChange={(event) => props.updateSelected({ text: event.target.value } as Partial<CardElement>)} />
+        </label>
+      )}
       <label>
-        Mode
+        <FieldIcon title="Mode" icon={<Layers size={18} />} />
         <select value={selected.mode} onChange={(event) => props.updateSelected({ mode: event.target.value as CardElement["mode"] })}>
           <option value="raised">Raised</option>
           <option value="engraved">Engraved</option>
@@ -382,31 +813,35 @@ function Controls(props: { selected?: CardElement; updateSelected: (patch: Parti
         </select>
       </label>
       <label>
-        Color
+        <FieldIcon title="Depth" icon={<Ruler size={18} />} />
+        <input
+          type="number"
+          min="0.1"
+          step="0.1"
+          value={selected.mode === "cut" ? "" : selected.depthMm}
+          disabled={selected.mode === "cut"}
+          aria-label={selected.mode === "cut" ? "Depth does not apply to cut-through mode" : "Depth millimeters"}
+          onChange={(event) => props.updateSelected({ depthMm: Number(event.target.value) })}
+        />
+      </label>
+      <label>
+        <FieldIcon title="Color" icon={<Palette size={18} />} />
         <input type="color" value={selected.color} onChange={(event) => props.updateSelected({ color: event.target.value })} />
       </label>
       <label>
-        Depth mm
-        <input type="number" min="0.1" step="0.1" value={selected.depthMm} onChange={(event) => props.updateSelected({ depthMm: Number(event.target.value) })} />
-      </label>
-      <label>
-        Rotation
+        <FieldIcon title="Rotation" icon={<RotateCw size={18} />} />
         <input type="number" value={selected.rotationDeg} onChange={(event) => props.updateSelected({ rotationDeg: Number(event.target.value) })} />
       </label>
       {selected.type === "text" && (
         <>
           <label>
-            Text
-            <input value={selected.text} onChange={(event) => props.updateSelected({ text: event.target.value } as Partial<CardElement>)} />
-          </label>
-          <label>
-            Font
+            <FieldIcon title="Font" icon={<Type size={18} />} />
             <select value={selected.fontFamily} onChange={(event) => props.updateSelected({ fontFamily: event.target.value } as Partial<CardElement>)}>
               {FONTS.map((font) => <option key={font}>{font}</option>)}
             </select>
           </label>
           <label>
-            Font size mm
+            <FieldIcon title="Font size" icon={<FontSizeIcon />} />
             <input type="number" min="1" step="0.2" value={selected.fontSizeMm} onChange={(event) => props.updateSelected({ fontSizeMm: Number(event.target.value) } as Partial<CardElement>)} />
           </label>
         </>
@@ -414,11 +849,11 @@ function Controls(props: { selected?: CardElement; updateSelected: (patch: Parti
       {"widthMm" in selected && (
         <>
           <label>
-            Width mm
+            <FieldIcon title="Width" icon={<MoveHorizontal size={18} />} />
             <input type="number" min="1" step="0.5" value={selected.widthMm} onChange={(event) => props.updateSelected({ widthMm: Number(event.target.value) } as Partial<CardElement>)} />
           </label>
           <label>
-            Height mm
+            <FieldIcon title="Height" icon={<MoveVertical size={18} />} />
             <input type="number" min="1" step="0.5" value={selected.heightMm} onChange={(event) => props.updateSelected({ heightMm: Number(event.target.value) } as Partial<CardElement>)} />
           </label>
         </>
@@ -427,10 +862,246 @@ function Controls(props: { selected?: CardElement; updateSelected: (patch: Parti
   );
 }
 
-function IconButton(props: { label: string; icon: React.ReactNode; onClick: () => void }) {
+function SettingsPanel(props: {
+  design: Design;
+  email: string;
+  user: SessionUser | null;
+  status: string;
+  warnings: ReturnType<typeof validatePrintability>;
+  setEmail: (email: string) => void;
+  updateDesign: (updater: (current: Design) => Design) => void;
+  signIn: () => void;
+  signOut: () => void;
+}) {
+  const [customUnit, setCustomUnit] = useState<"mm" | "in">("mm");
+  const size = getCardSize(props.design);
+  const customWidthValue = customUnit === "in" ? Number(mmToInches(size.widthMm).toFixed(3)) : Number(size.widthMm.toFixed(1));
+  const customHeightValue = customUnit === "in" ? Number(mmToInches(size.heightMm).toFixed(3)) : Number(size.heightMm.toFixed(1));
+
+  function updateCardPreset(value: string) {
+    if (value === "custom") {
+      props.updateDesign((current) => ({
+        ...current,
+        cardSize: "custom",
+        customSizeMm: {
+          widthMm: size.widthMm,
+          heightMm: size.heightMm,
+        },
+      }));
+      return;
+    }
+
+    props.updateDesign((current) => ({
+      ...current,
+      cardSize: value as keyof typeof CARD_SIZES,
+    }));
+  }
+
+  function updateCustomSize(axis: "widthMm" | "heightMm", value: number) {
+    const valueMm = customUnit === "in" ? inchesToMm(value) : value;
+    props.updateDesign((current) => ({
+      ...current,
+      cardSize: "custom",
+      customSizeMm: {
+        widthMm: axis === "widthMm" ? valueMm : getCardSize(current).widthMm,
+        heightMm: axis === "heightMm" ? valueMm : getCardSize(current).heightMm,
+      },
+    }));
+  }
+
   return (
-    <button className="icon-button" title={props.label} aria-label={props.label} onClick={props.onClick}>
+    <div className="control-panel">
+      <div className="sheet-title">
+        <strong>Settings</strong>
+        <span>{props.warnings.length ? `${props.warnings.length} warnings` : "print checks clear"}</span>
+      </div>
+      {props.user ? (
+        <button className="sheet-button wide" onClick={props.signOut}>
+          <LogOut size={17} /> {props.user.email}
+        </button>
+      ) : (
+        <>
+          <button className="sheet-button wide" onClick={props.signIn}>
+            <LogIn size={17} /> Sign in with Google
+          </button>
+          <label className="wide">
+            <FieldIcon title="Dev fallback email" icon={<Mail size={18} />} />
+            <input value={props.email} onChange={(event) => props.setEmail(event.target.value)} placeholder="you@example.com" />
+          </label>
+        </>
+      )}
+      <label className="wide">
+        <FieldIcon title="Card size" icon={<Box size={18} />} />
+        <select value={props.design.cardSize} onChange={(event) => updateCardPreset(event.target.value)}>
+          {Object.entries(CARD_SIZES).map(([key, preset]) => (
+            <option key={key} value={key}>
+              {preset.label}
+            </option>
+          ))}
+          <option value="custom">Custom</option>
+        </select>
+      </label>
+      {props.design.cardSize === "custom" && (
+        <>
+          <label>
+            <FieldIcon title="Units" icon={<Ruler size={18} />} />
+            <select value={customUnit} onChange={(event) => setCustomUnit(event.target.value as "mm" | "in")}>
+              <option value="mm">Millimeters</option>
+              <option value="in">Inches</option>
+            </select>
+          </label>
+          <label>
+            <FieldIcon title="Width" icon={<MoveHorizontal size={18} />} />
+            <input
+              type="number"
+              min={customUnit === "in" ? "0.4" : "10"}
+              step={customUnit === "in" ? "0.01" : "0.1"}
+              value={customWidthValue}
+              onChange={(event) => updateCustomSize("widthMm", Number(event.target.value))}
+            />
+          </label>
+          <label>
+            <FieldIcon title="Height" icon={<MoveVertical size={18} />} />
+            <input
+              type="number"
+              min={customUnit === "in" ? "0.4" : "10"}
+              step={customUnit === "in" ? "0.01" : "0.1"}
+              value={customHeightValue}
+              onChange={(event) => updateCustomSize("heightMm", Number(event.target.value))}
+            />
+          </label>
+        </>
+      )}
+      <label>
+        <FieldIcon title="Thickness" icon={<Layers size={18} />} />
+        <input
+          type="number"
+          min="0.8"
+          step="0.1"
+          value={props.design.thicknessMm}
+          onChange={(event) => props.updateDesign((current) => ({ ...current, thicknessMm: Number(event.target.value) }))}
+        />
+      </label>
+      <div className="warnings wide">
+        {props.warnings.length === 0 ? (
+          <span>Printability checks are clear.</span>
+        ) : (
+          props.warnings.map((warning) => (
+            <span key={warning.id} className={warning.severity}>
+              {warning.message}
+            </span>
+          ))
+        )}
+      </div>
+      <p className="status wide">{props.status}</p>
+    </div>
+  );
+}
+
+function FieldIcon(props: { title: string; icon: React.ReactNode }) {
+  return (
+    <span className="field-icon" title={props.title} aria-label={props.title}>
+      {props.icon}
+    </span>
+  );
+}
+
+function FontSizeIcon() {
+  return (
+    <span className="font-size-icon" aria-hidden="true">
+      <span>A</span>
+      <strong>A</strong>
+    </span>
+  );
+}
+
+function QrIcon() {
+  return (
+    <span className="qr-icon" aria-hidden="true">
+      <span />
+      <i />
+      <span />
+      <i />
+      <i />
+      <span />
+      <span />
+      <i />
+      <i />
+    </span>
+  );
+}
+
+function GuideDialog(props: { close: () => void }) {
+  return (
+    <div className="guide-backdrop" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+      <div className="guide-panel">
+        <div className="guide-header">
+          <h2 id="guide-title">Editor Guide</h2>
+          <button title="Close guide" aria-label="Close guide" onClick={props.close}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="guide-grid">
+          <GuideItem icon={<Undo2 size={18} />} title="Undo" text="Step back through design edits." />
+          <GuideItem icon={<Redo2 size={18} />} title="Redo" text="Restore edits after undo." />
+          <GuideItem icon={<FilePlus2 size={18} />} title="New card" text="Clear the card and start fresh." />
+          <GuideItem icon={<ZoomOut size={18} />} title="Zoom out" text="Make the editor canvas smaller." />
+          <GuideItem icon={<ZoomIn size={18} />} title="Zoom in" text="Inspect and place details more closely." />
+          <GuideItem icon={<Type size={18} />} title="Text" text="Add text. Double tap text to edit it." />
+          <GuideItem icon={<MoveHorizontal size={18} />} title="Move" text="Tap to select, then drag to move an element. Drag empty space to pan when zoomed in." />
+          <GuideItem icon={<QrIcon />} title="QR" text="Add a live QR code." />
+          <GuideItem icon={<Image size={18} />} title="SVG" text="Import a simple SVG logo path." />
+          <GuideItem icon={<Save size={18} />} title="Save" text="Save the design to the cloud when signed in." />
+          <GuideItem icon={<Download size={18} />} title="Export" text="Open STL, PDF, SVG, PNG, and credit options." />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GuideItem(props: { icon: React.ReactNode; title: string; text: string }) {
+  return (
+    <div className="guide-item">
+      <span>{props.icon}</span>
+      <div>
+        <strong>{props.title}</strong>
+        <p>{props.text}</p>
+      </div>
+    </div>
+  );
+}
+
+function IconButton(props: { label: string; icon: React.ReactNode; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button className="icon-button" title={props.label} aria-label={props.label} onClick={props.onClick} disabled={props.disabled}>
       {props.icon}
     </button>
+  );
+}
+
+type PersistedDesign = Partial<Design> & {
+  sides?: {
+    front?: CardSide;
+  };
+};
+
+function migrateFrontOnly(design: PersistedDesign): Design {
+  if (design.side) {
+    return design as Design;
+  }
+  return {
+    ...design,
+    side: design.sides?.front ?? createInitialDesign().side,
+  } as Design;
+}
+
+function isElementFullyOffCard(element: CardElement, xMm: number, yMm: number, design: Design) {
+  const cardSize = getCardSize(design);
+  const elementSize = getElementSize(element);
+  return (
+    xMm + elementSize.widthMm < 0 ||
+    yMm + elementSize.heightMm < 0 ||
+    xMm > cardSize.widthMm ||
+    yMm > cardSize.heightMm
   );
 }

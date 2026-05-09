@@ -1,4 +1,4 @@
-import { CARD_SIZES, CardElement, Design, getElementSize, PRINT_DEFAULTS } from "../shared/design";
+import { CardElement, Design, getCardSize, getElementSize, PRINT_DEFAULTS } from "../shared/design";
 
 export interface PrintWarning {
   id: string;
@@ -8,8 +8,8 @@ export interface PrintWarning {
 
 export function validatePrintability(design: Design): PrintWarning[] {
   const warnings: PrintWarning[] = [];
-  const size = CARD_SIZES[design.cardSize];
-  const elements = design.sides.front.elements;
+  const size = getCardSize(design);
+  const elements = design.side.elements;
 
   if (design.thicknessMm < 0.8) {
     warnings.push({
@@ -44,6 +44,14 @@ export function validatePrintability(design: Design): PrintWarning[] {
         message: `${labelFor(element)} engraving is deeper than the card thickness.`,
       });
     }
+
+    if (element.type === "text" && element.mode === "cut" && hasDetachedCutTextIslands(element.text)) {
+      warnings.push({
+        id: element.id,
+        severity: "warning",
+        message: `${labelFor(element)} has enclosed areas, so the preview and STL remove those island plastics for a printable full cut-through card.`,
+      });
+    }
   }
 
   for (let i = 0; i < elements.length; i += 1) {
@@ -59,6 +67,10 @@ export function validatePrintability(design: Design): PrintWarning[] {
   }
 
   return warnings;
+}
+
+export function hasDetachedCutTextIslands(text: string) {
+  return /[04689@AaBbDdeGgOoPpQqR]/.test(text);
 }
 
 function gapBetween(a: CardElement, b: CardElement) {

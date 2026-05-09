@@ -3,10 +3,11 @@ import { json, readJson } from "../../lib/http";
 
 interface Env {
   DB: D1Database;
+  AUTH_SECRET?: string;
 }
 
 export async function onRequestGet({ env, request }: EventContext<Env, string, unknown>) {
-  const user = await requireUser(env.DB, request);
+  const user = await requireUser(env.DB, request, env);
   const results = await env.DB.prepare(
     "SELECT id, name, design_json, created_at, updated_at FROM designs WHERE owner_id = ? ORDER BY updated_at DESC",
   )
@@ -25,7 +26,7 @@ export async function onRequestGet({ env, request }: EventContext<Env, string, u
 }
 
 export async function onRequestPost({ env, request }: EventContext<Env, string, unknown>) {
-  const user = await requireUser(env.DB, request);
+  const user = await requireUser(env.DB, request, env);
   const body = await readJson<{ id?: string; name?: string; design: unknown }>(request);
   const id = body.id ?? crypto.randomUUID();
   const name = body.name?.trim() || "Untitled design";

@@ -10,7 +10,28 @@ describe("validatePrintability", () => {
 
   it("errors when an element extends beyond the card", () => {
     const design = createInitialDesign();
-    design.sides.front.elements[0].xMm = 200;
+    design.side.elements[0].xMm = 200;
     expect(validatePrintability(design).some((warning) => warning.severity === "error")).toBe(true);
+  });
+
+  it("warns when cut-through text has detached islands that will be removed", () => {
+    const design = createInitialDesign();
+    design.side.elements = [
+      {
+        id: "cut-text",
+        type: "text",
+        text: "BOB",
+        fontFamily: "Inter",
+        fontSizeMm: 5,
+        xMm: 5,
+        yMm: 5,
+        rotationDeg: 0,
+        color: "#111111",
+        mode: "cut",
+        depthMm: 1.2,
+      },
+    ];
+
+    expect(validatePrintability(design).some((warning) => warning.id === "cut-text" && warning.severity === "warning")).toBe(true);
   });
 });

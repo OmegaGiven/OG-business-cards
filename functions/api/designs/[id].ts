@@ -3,10 +3,11 @@ import { json, readJson } from "../../lib/http";
 
 interface Env {
   DB: D1Database;
+  AUTH_SECRET?: string;
 }
 
 export async function onRequestGet({ env, request, params }: EventContext<Env, string, { id: string }>) {
-  const user = await requireUser(env.DB, request);
+  const user = await requireUser(env.DB, request, env);
   const row = await env.DB.prepare(
     "SELECT id, name, design_json, created_at, updated_at FROM designs WHERE owner_id = ? AND id = ?",
   )
@@ -27,7 +28,7 @@ export async function onRequestGet({ env, request, params }: EventContext<Env, s
 }
 
 export async function onRequestPut({ env, request, params }: EventContext<Env, string, { id: string }>) {
-  const user = await requireUser(env.DB, request);
+  const user = await requireUser(env.DB, request, env);
   const body = await readJson<{ name?: string; design: unknown }>(request);
   const now = new Date().toISOString();
   const result = await env.DB.prepare(

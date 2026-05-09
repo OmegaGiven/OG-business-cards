@@ -4,10 +4,11 @@ import { authorizeStlExport } from "../../../../src/shared/billing";
 
 interface Env {
   DB: D1Database;
+  AUTH_SECRET?: string;
 }
 
 export async function onRequestPost({ env, request }: EventContext<Env, string, unknown>) {
-  const user = await requireUser(env.DB, request);
+  const user = await requireUser(env.DB, request, env);
   const decision = authorizeStlExport({
     freeExportsUsed: user.stlExportCount,
     paidCredits: user.paidExportCredits,

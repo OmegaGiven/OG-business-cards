@@ -5,10 +5,11 @@ interface Env {
   DB: D1Database;
   STRIPE_SECRET_KEY: string;
   APP_URL: string;
+  AUTH_SECRET?: string;
 }
 
 export async function onRequestPost({ env, request }: EventContext<Env, string, unknown>) {
-  const user = await requireUser(env.DB, request);
+  const user = await requireUser(env.DB, request, env);
   if (!env.STRIPE_SECRET_KEY || !env.APP_URL) {
     return json({ error: "Stripe is not configured" }, 500);
   }

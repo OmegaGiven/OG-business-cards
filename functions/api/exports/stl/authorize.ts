@@ -38,6 +38,6 @@ export async function onRequestPost({ env, request }: EventContext<Env, string, 
     allowed: true,
     source: decision.source,
     freeExportsRemaining: Math.max(0, 2 - user.stlExportCount - (decision.source === "free" ? 1 : 0)),
-    paidCredits: decision.source === "paid-credit" ? user.paidExportCredits - 1 : user.paidExportCredits,
+    paidCredits: decision.source === "paid-export" ? user.paidExportCredits - 1 : user.paidExportCredits,
   });
 }

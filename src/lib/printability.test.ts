@@ -34,4 +34,25 @@ describe("validatePrintability", () => {
 
     expect(validatePrintability(design).some((warning) => warning.id === "cut-text" && warning.severity === "warning")).toBe(true);
   });
+
+  it("does not allow cut-through QR codes", () => {
+    const design = createInitialDesign();
+    design.side.elements = [
+      {
+        id: "qr-cut",
+        type: "qr",
+        value: "https://example.com",
+        widthMm: 14,
+        heightMm: 14,
+        xMm: 5,
+        yMm: 5,
+        rotationDeg: 0,
+        color: "#111111",
+        mode: "cut",
+        depthMm: 1.2,
+      },
+    ];
+
+    expect(validatePrintability(design).some((warning) => warning.id === "qr-cut" && warning.severity === "error")).toBe(true);
+  });
 });

@@ -23,8 +23,8 @@ export async function onRequestPost({ env, request }: EventContext<Env, string, 
   form.set("metadata[userId]", user.id);
   form.set("line_items[0][quantity]", "1");
   form.set("line_items[0][price_data][currency]", "usd");
-  form.set("line_items[0][price_data][unit_amount]", "500");
-  form.set("line_items[0][price_data][product_data][name]", "OG Business Cards STL export");
+  form.set("line_items[0][price_data][unit_amount]", "199");
+  form.set("line_items[0][price_data][product_data][name]", "OG Tools model export");
 
   const stripeResponse = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
@@ -43,7 +43,7 @@ export async function onRequestPost({ env, request }: EventContext<Env, string, 
   await env.DB.prepare(
     "INSERT INTO payments (id, user_id, stripe_session_id, amount_cents, status) VALUES (?, ?, ?, ?, ?)",
   )
-    .bind(crypto.randomUUID(), user.id, session.id, 500, "checkout_created")
+    .bind(crypto.randomUUID(), user.id, session.id, 199, "checkout_created")
     .run();
 
   return json({ checkoutUrl: session.url });

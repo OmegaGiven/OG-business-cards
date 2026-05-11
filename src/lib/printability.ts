@@ -45,6 +45,14 @@ export function validatePrintability(design: Design): PrintWarning[] {
       });
     }
 
+    if (element.type === "qr" && element.mode === "cut") {
+      warnings.push({
+        id: element.id,
+        severity: "error",
+        message: "QR codes cannot use cut-through mode. Use raised or engraved mode so the code stays scannable and printable.",
+      });
+    }
+
     if (element.type === "text" && element.mode === "cut" && hasDetachedCutTextIslands(element.text)) {
       warnings.push({
         id: element.id,

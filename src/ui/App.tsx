@@ -58,11 +58,13 @@ import {
   PRINT_DEFAULTS,
   pxToMm,
 } from "../shared/design";
+import { LidMakerTool } from "./LidMakerTool";
 import { ThreePreview } from "./ThreePreview";
 
 const MAX_SCALE = 8;
 const MAX_HISTORY = 80;
 const FONTS = ["Inter", "Arial", "Georgia", "Courier New", "Trebuchet MS"];
+type ActiveTool = "business-card" | "lid-maker";
 
 interface DesignHistory {
   past: Design[];
@@ -80,6 +82,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState(design.side.elements[0]?.id ?? "");
   const [email, setEmail] = useState(loadUserEmail());
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [activeTool, setActiveTool] = useState<ActiveTool>("business-card");
   const [view, setView] = useState<"editor" | "export">("editor");
   const [status, setStatus] = useState("");
   const [showSettings, setShowSettings] = useState(false);
@@ -105,6 +108,14 @@ export function App() {
 
   useEffect(() => {
     getCurrentUser().then(setUser).catch(() => setUser(null));
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("signedIn") === "1" && window.opener) {
+      window.opener.postMessage({ type: "og-tools-auth-complete" }, window.location.origin);
+      window.close();
+    }
   }, []);
 
   useEffect(() => {
@@ -327,17 +338,20 @@ export function App() {
     }
 
     const fallbackEmail = email.includes("@") ? email : undefined;
-    if (user || fallbackEmail) {
-      const result = await authorizeStlExport(fallbackEmail);
-      if (!result.allowed) {
-        const checkout = await createStlCheckout(fallbackEmail);
-        window.location.href = checkout.checkoutUrl;
-        return;
-      }
+    if (!user && !fallbackEmail) {
+      setStatus("Sign in with Google before exporting STL.");
+      return;
+    }
+
+    const result = await authorizeStlExport(fallbackEmail);
+    if (!result.allowed) {
+      const checkout = await createStlCheckout(fallbackEmail);
+      window.location.href = checkout.checkoutUrl;
+      return;
     }
 
     downloadText(`${safeName(design.name)}.stl`, designToAsciiStl(design), "model/stl");
-    setStatus(user || fallbackEmail ? "STL export authorized and downloaded." : "Local STL downloaded without cloud billing.");
+    setStatus("STL export authorized and downloaded.");
   }
 
   function selectElement(element: CardElement) {
@@ -447,6 +461,63 @@ export function App() {
     startViewportPan(nativeEvent.clientX, nativeEvent.clientY);
   }
 
+  function selectTool(tool: ActiveTool) {
+    setActiveTool(tool);
+    setView("editor");
+    setSelectedId("");
+    setShowSettings(false);
+  }
+
+  async function signOut() {
+    await logout();
+    setUser(null);
+    setStatus("Signed out.");
+  }
+
+  function signIn() {
+    const popup = startGoogleLogin();
+    if (!popup) {
+      return;
+    }
+
+    const refreshSession = async () => {
+      setUser(await getCurrentUser());
+      setStatus("Signed in.");
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "og-tools-auth-complete") {
+        return;
+      }
+      window.removeEventListener("message", onMessage);
+      clearInterval(poll);
+      void refreshSession();
+    };
+
+    const poll = window.setInterval(() => {
+      if (popup.closed) {
+        window.removeEventListener("message", onMessage);
+        clearInterval(poll);
+        void refreshSession();
+      }
+    }, 500);
+
+    window.addEventListener("message", onMessage);
+  }
+
+  if (activeTool === "lid-maker") {
+    return (
+      <main className="mobile-shell">
+        <ToolNav activeTool={activeTool} selectTool={selectTool} user={user} signIn={signIn} signOut={signOut} />
+        <LidMakerTool
+          email={email}
+          user={user}
+          refreshUser={async () => setUser(await getCurrentUser())}
+        />
+      </main>
+    );
+  }
+
   if (view === "export") {
     return (
       <ExportScreen
@@ -459,8 +530,12 @@ export function App() {
         setStatus={setStatus}
         saveCloud={saveCloud}
         exportStl={exportStl}
+        activeTool={activeTool}
+        selectTool={selectTool}
+        signIn={signIn}
+        signOut={signOut}
         back={() => setView("editor")}
-        buyCredit={async () => {
+        buyExport={async () => {
           const checkout = await createStlCheckout(email.includes("@") ? email : undefined);
           window.location.href = checkout.checkoutUrl;
         }}
@@ -471,6 +546,7 @@ export function App() {
 
   return (
     <main className="mobile-shell">
+      <ToolNav activeTool={activeTool} selectTool={selectTool} user={user} signIn={signIn} signOut={signOut} />
       <header className="top-bar">
         <div className="brand-strip">
           <input
@@ -497,7 +573,6 @@ export function App() {
           <IconButton label="Add QR" icon={<QrIcon />} onClick={addQr} />
           <IconButton label="Import SVG" icon={<Image size={19} />} onClick={() => fileInputRef.current?.click()} />
           <IconButton label="Save" icon={<Save size={19} />} onClick={saveCloud} />
-          <IconButton label="Export" icon={<Download size={19} />} onClick={() => setView("export")} />
         </div>
         <input ref={fileInputRef} type="file" accept=".svg,image/svg+xml" hidden onChange={importSvg} />
       </header>
@@ -551,19 +626,19 @@ export function App() {
             warnings={warnings}
             setEmail={setEmail}
             updateDesign={updateDesign}
-            user={user}
-            signIn={startGoogleLogin}
-            signOut={async () => {
-              await logout();
-              setUser(null);
-              setStatus("Signed out.");
-            }}
           />
         )}
       </section>
 
       <section className="preview-section">
         <ThreePreview design={design} />
+      </section>
+
+      <section className="card-actions">
+        <button onClick={() => setView("export")}>
+          <Download size={20} />
+          <span>{modelExportLabel(user)}</span>
+        </button>
       </section>
 
       {showGuide && <GuideDialog close={() => setShowGuide(false)} />}
@@ -599,8 +674,12 @@ function ExportScreen(props: {
   setStatus: (status: string) => void;
   saveCloud: () => Promise<void>;
   exportStl: () => Promise<void>;
-  buyCredit: () => Promise<void>;
+  buyExport: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  activeTool: ActiveTool;
+  selectTool: (tool: ActiveTool) => void;
+  signIn: () => void;
+  signOut: () => void;
   back: () => void;
 }) {
   const size = getCardSize(props.design);
@@ -618,6 +697,7 @@ function ExportScreen(props: {
 
   return (
     <main className="export-shell">
+      <ToolNav activeTool={props.activeTool} selectTool={props.selectTool} user={props.user} signIn={props.signIn} signOut={props.signOut} />
       <header className="export-header">
         <button title="Back to editor" aria-label="Back to editor" onClick={props.back}>
           <ArrowLeft size={20} />
@@ -633,26 +713,14 @@ function ExportScreen(props: {
         <span>{size.widthMm}mm x {size.heightMm}mm x {props.design.thicknessMm}mm</span>
       </section>
 
-      <section className="export-account">
-        {props.user ? (
-          <div>
-            <strong>{props.user.email}</strong>
-            <span>
-              {Math.max(0, 2 - props.user.stlExportCount)} free STL exports left · {props.user.paidExportCredits} paid credits
-            </span>
-          </div>
-        ) : (
-          <>
-            <button className="export-login" onClick={startGoogleLogin}>
-              <LogIn size={18} /> Sign in with Google
-            </button>
+      {!props.user && (
+        <section className="export-account">
             <label>
               Dev fallback email
               <input value={props.fallbackEmail} onChange={(event) => props.setFallbackEmail(event.target.value)} placeholder="you@example.com" />
             </label>
-          </>
-        )}
-      </section>
+        </section>
+      )}
 
       <section className="export-options">
         <button onClick={() => runExport(() => downloadText(`${safeName(props.design.name)}.svg`, svg, "image/svg+xml"), "SVG downloaded.")}>
@@ -669,15 +737,15 @@ function ExportScreen(props: {
         </button>
         <button onClick={() => runExport(props.exportStl, "STL downloaded.")}>
           <Box size={20} />
-          <span>STL</span>
+          <span>{modelExportLabel(props.user)}</span>
         </button>
         <button onClick={() => runExport(props.saveCloud, "Design saved.")}>
           <Save size={20} />
           <span>Save</span>
         </button>
-        <button onClick={() => runExport(props.buyCredit, "Opening checkout.")}>
+        <button onClick={() => runExport(props.buyExport, "Opening checkout.")}>
           <CreditCard size={20} />
-          <span>Buy STL credit</span>
+          <span>Pay $1.99 to export</span>
         </button>
       </section>
 
@@ -695,6 +763,49 @@ function ExportScreen(props: {
       <p className="export-status">{props.status}</p>
     </main>
   );
+}
+
+function ToolNav(props: {
+  activeTool: ActiveTool;
+  selectTool: (tool: ActiveTool) => void;
+  user?: SessionUser | null;
+  signIn?: () => void;
+  signOut?: () => void;
+}) {
+  return (
+    <nav className="tool-nav" aria-label="Tool navigation">
+      <button className={`tool-tab ${props.activeTool === "business-card" ? "active" : ""}`} onClick={() => props.selectTool("business-card")}>
+        <Box size={18} />
+        <span>Cards</span>
+      </button>
+      <button className={`tool-tab ${props.activeTool === "lid-maker" ? "active" : ""}`} onClick={() => props.selectTool("lid-maker")}>
+        <Ruler size={18} />
+        <span>Lids</span>
+      </button>
+      {props.user ? (
+        <button className="account-tab" title={props.user.email} onClick={props.signOut}>
+          <LogOut size={18} />
+          <span>{modelExportLabel(props.user)}</span>
+        </button>
+      ) : (
+        <button className="account-tab" onClick={props.signIn}>
+          <LogIn size={18} />
+          <span>Sign in</span>
+        </button>
+      )}
+    </nav>
+  );
+}
+
+function modelExportLabel(user: SessionUser | null | undefined) {
+  if (!user) {
+    return "Sign in to export";
+  }
+  const freeExports = Math.max(0, 2 - user.stlExportCount);
+  if (freeExports > 0) {
+    return `${freeExports} free export${freeExports === 1 ? "" : "s"}`;
+  }
+  return "$1.99 export";
 }
 
 function DesignNode(props: {
@@ -806,10 +917,13 @@ function Controls(props: {
       )}
       <label>
         <FieldIcon title="Mode" icon={<Layers size={18} />} />
-        <select value={selected.mode} onChange={(event) => props.updateSelected({ mode: event.target.value as CardElement["mode"] })}>
+        <select
+          value={selected.type === "qr" && selected.mode === "cut" ? "raised" : selected.mode}
+          onChange={(event) => props.updateSelected({ mode: event.target.value as CardElement["mode"] })}
+        >
           <option value="raised">Raised</option>
           <option value="engraved">Engraved</option>
-          <option value="cut">Cut through</option>
+          {selected.type !== "qr" && <option value="cut">Cut through</option>}
         </select>
       </label>
       <label>
@@ -865,13 +979,10 @@ function Controls(props: {
 function SettingsPanel(props: {
   design: Design;
   email: string;
-  user: SessionUser | null;
   status: string;
   warnings: ReturnType<typeof validatePrintability>;
   setEmail: (email: string) => void;
   updateDesign: (updater: (current: Design) => Design) => void;
-  signIn: () => void;
-  signOut: () => void;
 }) {
   const [customUnit, setCustomUnit] = useState<"mm" | "in">("mm");
   const size = getCardSize(props.design);
@@ -915,21 +1026,10 @@ function SettingsPanel(props: {
         <strong>Settings</strong>
         <span>{props.warnings.length ? `${props.warnings.length} warnings` : "print checks clear"}</span>
       </div>
-      {props.user ? (
-        <button className="sheet-button wide" onClick={props.signOut}>
-          <LogOut size={17} /> {props.user.email}
-        </button>
-      ) : (
-        <>
-          <button className="sheet-button wide" onClick={props.signIn}>
-            <LogIn size={17} /> Sign in with Google
-          </button>
-          <label className="wide">
-            <FieldIcon title="Dev fallback email" icon={<Mail size={18} />} />
-            <input value={props.email} onChange={(event) => props.setEmail(event.target.value)} placeholder="you@example.com" />
-          </label>
-        </>
-      )}
+      <label className="wide">
+        <FieldIcon title="Dev fallback email" icon={<Mail size={18} />} />
+        <input value={props.email} onChange={(event) => props.setEmail(event.target.value)} placeholder="you@example.com" />
+      </label>
       <label className="wide">
         <FieldIcon title="Card size" icon={<Box size={18} />} />
         <select value={props.design.cardSize} onChange={(event) => updateCardPreset(event.target.value)}>
@@ -1016,17 +1116,15 @@ function FontSizeIcon() {
 }
 
 function QrIcon() {
+  const matrix = createQrMatrix("https://github.com/OmegaGiven");
   return (
-    <span className="qr-icon" aria-hidden="true">
-      <span />
-      <i />
-      <span />
-      <i />
-      <i />
-      <span />
-      <span />
-      <i />
-      <i />
+    <span className="qr-icon" style={{ gridTemplateColumns: `repeat(${matrix.size}, 1fr)` }} aria-hidden="true">
+      {Array.from({ length: matrix.size * matrix.size }, (_, index) => (
+        <span
+          key={index}
+          className={matrix.modules.some((module) => module.row === Math.floor(index / matrix.size) && module.col === index % matrix.size) ? "on" : ""}
+        />
+      ))}
     </span>
   );
 }
@@ -1052,7 +1150,7 @@ function GuideDialog(props: { close: () => void }) {
           <GuideItem icon={<QrIcon />} title="QR" text="Add a live QR code." />
           <GuideItem icon={<Image size={18} />} title="SVG" text="Import a simple SVG logo path." />
           <GuideItem icon={<Save size={18} />} title="Save" text="Save the design to the cloud when signed in." />
-          <GuideItem icon={<Download size={18} />} title="Export" text="Open STL, PDF, SVG, PNG, and credit options." />
+          <GuideItem icon={<Download size={18} />} title="Export" text="Open STL, PDF, SVG, PNG, and payment options." />
         </div>
       </div>
     </div>

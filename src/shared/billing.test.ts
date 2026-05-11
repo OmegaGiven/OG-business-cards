@@ -13,14 +13,14 @@ describe("authorizeStlExport", () => {
     });
   });
 
-  it("uses paid credits after free exports are exhausted", () => {
+  it("uses paid export authorization after free exports are exhausted", () => {
     expect(authorizeStlExport({ freeExportsUsed: 2, paidCredits: 1 })).toEqual({
       allowed: true,
-      source: "paid-credit",
+      source: "paid-export",
     });
   });
 
-  it("requires payment without free exports or credits", () => {
+  it("requires payment without free exports or paid export authorization", () => {
     expect(authorizeStlExport({ freeExportsUsed: 2, paidCredits: 0 })).toEqual({
       allowed: false,
       reason: "payment-required",

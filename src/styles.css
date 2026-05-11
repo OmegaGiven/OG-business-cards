@@ -47,6 +47,45 @@ select:disabled {
   background: #e9e4d8;
 }
 
+.tool-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(128px, 1.2fr);
+  gap: 8px;
+  padding: 10px 12px;
+  background: #1f292e;
+}
+
+.tool-nav button {
+  min-height: 42px;
+  border: 1px solid #5f6b63;
+  border-radius: 6px;
+  background: #273238;
+  color: #d8ded3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.tool-nav button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-nav .tool-tab.active {
+  border-color: #f0c36a;
+  background: #46544a;
+  color: #fff8e8;
+}
+
+.tool-nav .account-tab {
+  border-color: #829083;
+  background: #34444b;
+  color: #f7f3e8;
+}
+
 .top-bar {
   position: sticky;
   top: 0;
@@ -99,6 +138,12 @@ select:disabled {
   color: #f7f3e8;
   font-size: 18px;
   font-weight: 700;
+}
+
+.name-input.light {
+  border-color: #cec5b5;
+  background: #fbfaf6;
+  color: #1d211f;
 }
 
 .action-bar {
@@ -210,22 +255,18 @@ select:disabled {
   width: 19px;
   height: 19px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-}
-
-.qr-icon span,
-.qr-icon i {
-  display: block;
-  border-radius: 1px;
+  gap: 0;
+  padding: 1px;
+  background: #fbfaf6;
 }
 
 .qr-icon span {
-  background: currentColor;
+  display: block;
+  background: transparent;
 }
 
-.qr-icon i {
-  border: 1px solid currentColor;
+.qr-icon .on {
+  background: #1d211f;
 }
 
 .wide,
@@ -317,6 +358,31 @@ select:disabled {
   padding: 0 12px 18px;
 }
 
+.card-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 12px 18px;
+}
+
+.card-actions button {
+  min-height: 62px;
+  border: 1px solid #829083;
+  border-radius: 8px;
+  background: #273238;
+  color: #f7f3e8;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+}
+
+.card-actions button:hover {
+  background: #46544a;
+}
+
 .preview-3d {
   width: 100%;
   min-height: 260px;
@@ -324,6 +390,15 @@ select:disabled {
   border-radius: 8px;
   overflow: hidden;
   background: #f4f0e6;
+}
+
+.interactive-preview {
+  cursor: grab;
+  touch-action: none;
+}
+
+.interactive-preview:active {
+  cursor: grabbing;
 }
 
 .export-shell {
@@ -491,6 +566,141 @@ select:disabled {
   font-size: 13px;
 }
 
+.lid-tool {
+  display: grid;
+  gap: 14px;
+  padding: 12px;
+}
+
+.lid-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.segmented {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(82px, auto));
+  gap: 6px;
+}
+
+.segmented button {
+  min-width: 82px;
+  height: 42px;
+  border: 1px solid #829083;
+  border-radius: 6px;
+  background: #fbfaf6;
+  color: #35433a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.segmented button.active {
+  border-color: #2f7c6b;
+  background: #e0f0e9;
+  color: #1e5f51;
+}
+
+.lid-preview-panel {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.lid-preview-panel .preview-3d {
+  width: min(100%, 760px);
+  min-height: 340px;
+  box-shadow: 0 12px 36px rgb(39 50 56 / 14%);
+}
+
+.lid-preview-panel span {
+  color: #536058;
+  font-size: 13px;
+}
+
+.lid-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.lid-controls label {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.lid-field-label {
+  width: 150px;
+  min-height: 42px;
+  height: auto;
+  grid-template-columns: 22px minmax(0, 1fr);
+  justify-content: start;
+  place-items: center start;
+  padding: 5px 9px;
+  gap: 6px;
+}
+
+.lid-field-label span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.05;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.lid-account {
+  max-width: 760px;
+}
+
+.lid-account .text-button {
+  width: auto;
+  margin-top: 10px;
+  border: 1px solid #829083;
+  border-radius: 6px;
+  color: #f7f3e8;
+  background: #34444b;
+  padding: 9px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.lid-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.lid-actions button {
+  min-height: 62px;
+  border: 1px solid #829083;
+  border-radius: 8px;
+  background: #273238;
+  color: #f7f3e8;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+}
+
+.lid-actions button:hover,
+.lid-account .text-button:hover {
+  background: #46544a;
+}
+
 .guide-backdrop {
   position: fixed;
   inset: 0;
@@ -611,8 +821,21 @@ select:disabled {
     grid-template-columns: 38px minmax(0, 1fr);
   }
 
+  .lid-controls label {
+    grid-template-columns: 118px minmax(0, 1fr);
+  }
+
   .field-icon {
     width: 38px;
+  }
+
+  .lid-field-label {
+    width: 118px;
+  }
+
+  .lid-controls,
+  .lid-actions {
+    grid-template-columns: 1fr;
   }
 
   .guide-grid {

@@ -1,7 +1,7 @@
 export const FREE_STL_EXPORTS = 2;
 
 export type StlExportDecision =
-  | { allowed: true; source: "free" | "paid-credit" }
+  | { allowed: true; source: "free" | "paid-export" }
   | { allowed: false; reason: "payment-required" };
 
 export function authorizeStlExport(input: { freeExportsUsed: number; paidCredits: number }): StlExportDecision {
@@ -10,7 +10,7 @@ export function authorizeStlExport(input: { freeExportsUsed: number; paidCredits
   }
 
   if (input.paidCredits > 0) {
-    return { allowed: true, source: "paid-credit" };
+    return { allowed: true, source: "paid-export" };
   }
 
   return { allowed: false, reason: "payment-required" };

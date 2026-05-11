@@ -17,7 +17,7 @@ export function createCardBaseGeometry(design: Design) {
   cardShape.lineTo(-cardSize.widthMm / 2, -cardSize.heightMm / 2);
 
   for (const element of design.side.elements) {
-    if (element.mode !== "cut") {
+    if (element.mode !== "cut" || element.type === "qr") {
       continue;
     }
     cardShape.holes.push(...elementToCutPaths(element, design));
@@ -35,7 +35,7 @@ export function createCardBaseGeometry(design: Design) {
 export function createRaisedElementGeometries(design: Design) {
   const geometries: Array<{ geometry: THREE.BufferGeometry; color: string }> = [];
   for (const element of design.side.elements) {
-    if (element.mode !== "raised") {
+    if (element.mode !== "raised" && !(element.type === "qr" && element.mode === "cut")) {
       continue;
     }
 

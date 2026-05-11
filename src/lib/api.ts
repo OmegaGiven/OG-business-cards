@@ -16,7 +16,17 @@ export async function getCurrentUser() {
 }
 
 export function startGoogleLogin() {
-  window.location.href = "/api/auth/google/start";
+  const popup = window.open(
+    "/api/auth/google/start",
+    "og-tools-google-signin",
+    "popup=yes,width=520,height=680,menubar=no,toolbar=no,location=no,status=no",
+  );
+  if (!popup) {
+    window.location.href = "/api/auth/google/start";
+    return null;
+  }
+  popup.focus();
+  return popup;
 }
 
 export async function logout() {

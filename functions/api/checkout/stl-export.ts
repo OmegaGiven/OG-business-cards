@@ -24,7 +24,7 @@ export async function onRequestPost({ env, request }: EventContext<Env, string, 
   form.set("line_items[0][quantity]", "1");
   form.set("line_items[0][price_data][currency]", "usd");
   form.set("line_items[0][price_data][unit_amount]", "199");
-  form.set("line_items[0][price_data][product_data][name]", "OG Tools model export");
+  form.set("line_items[0][price_data][product_data][name]", "OG-Modeler export");
 
   const stripeResponse = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",

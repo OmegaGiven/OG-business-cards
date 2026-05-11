@@ -18,7 +18,7 @@ export async function getCurrentUser() {
 export function startGoogleLogin() {
   const popup = window.open(
     "/api/auth/google/start",
-    "og-tools-google-signin",
+    "og-modeler-google-signin",
     "popup=yes,width=520,height=680,menubar=no,toolbar=no,location=no,status=no",
   );
   if (!popup) {

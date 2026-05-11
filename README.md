@@ -1,4 +1,4 @@
-# OG Tools
+# OG-Modeler
 
 A low-cost web app with multiple browser-based design tools for creating simple 3D-printable models and exports.
 
@@ -62,7 +62,7 @@ npm run build
 3. Apply the schema:
 
 ```bash
-npx wrangler d1 migrations apply og-business-cards
+npx wrangler d1 migrations apply og-modeler
 ```
 
 4. Add production secrets:
@@ -86,7 +86,7 @@ npm run worker:deploy
 
 Each user gets two free model exports. After that, the app sends them to Stripe Checkout for a `$1.99` paid model export.
 
-Credits are stored against the signed-in Google account email. The backend still accepts the `X-User-Email` header as a local development fallback, but production should use Google SSO.
+Free export usage is stored against the signed-in Google account email. The backend still accepts the `X-User-Email` header as a local development fallback, but production should use Google SSO.
 
 ## Google SSO
 

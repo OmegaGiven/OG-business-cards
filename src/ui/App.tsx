@@ -113,7 +113,7 @@ export function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("signedIn") === "1" && window.opener) {
-      window.opener.postMessage({ type: "og-tools-auth-complete" }, window.location.origin);
+      window.opener.postMessage({ type: "og-modeler-auth-complete" }, window.location.origin);
       window.close();
     }
   }, []);
@@ -486,7 +486,7 @@ export function App() {
     };
 
     const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.data?.type !== "og-tools-auth-complete") {
+      if (event.origin !== window.location.origin || event.data?.type !== "og-modeler-auth-complete") {
         return;
       }
       window.removeEventListener("message", onMessage);

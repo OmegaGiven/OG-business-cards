@@ -1,8 +1,8 @@
-name = "og-business-cards"
+name = "og-modeler"
 compatibility_date = "2026-05-07"
 pages_build_output_dir = "dist"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "og-business-cards"
+database_name = "og-modeler"
 database_id = "replace-with-cloudflare-d1-database-id"

@@ -92,7 +92,7 @@ export function createInitialDesign(): Design {
   return {
     id: crypto.randomUUID(),
     ownerId: "local",
-    name: "OG business card",
+    name: "Business card model",
     cardSize: "us-standard",
     thicknessMm: PRINT_DEFAULTS.thicknessMm,
     side: {

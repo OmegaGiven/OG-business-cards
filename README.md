@@ -3,6 +3,7 @@
 OG-3dmodeler is a phone-friendly browser app for making small, practical 3D-printable models. It is currently a local-first prototype: users can design models, preview them in 3D, export STL files, or send generated STLs to a local bridge service for slicing and optional printing.
 
 <img width="906" height="1043" alt="image" src="https://github.com/user-attachments/assets/38dd15bd-cc96-4e02-9752-62cb16f098dc" />
+<img width="884" height="1079" alt="image" src="https://github.com/user-attachments/assets/30b2f304-4a20-4949-953a-46c3e02bb9eb" />
 
 
 ## Current Tools

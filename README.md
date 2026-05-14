@@ -15,18 +15,23 @@ A low-cost web app with multiple browser-based design tools for creating simple 
 - Add QR placeholders
 - Choose fonts, colors, element depth, and print mode
 - Print modes: raised, engraved, or full through-cut
+- Nozzle diameter and tolerance settings for printability warnings
 - Lid maker tool:
 - Circular or square lids
 - Inner-fit lids for openings and outer-fit lids that wrap around the outside of an object
 - Round lid diameter input is explicit: opening inner diameter in inner mode, object outer diameter in outer mode
 - Dimension entry in millimeters or inches
 - Lip walls default to `2mm`
+- Lid tolerance changes generated fit clearance for inner/outer lids
 - Browser-generated STL with a top plate and underside rim
+- Washer tool:
+- Inner diameter, outer diameter, and height inputs
+- Nozzle and tolerance checks for thin washer walls and small holes
+- Browser-generated STL washer export
 - Browser-side STL export for cheap hosting
 - Printability warnings for thin details, off-card elements, and invalid engraving depth
 - Cloudflare Pages/Workers/D1 backend skeleton
-- Google SSO skeleton that stores saves and free export usage by verified email
-- Stripe Checkout skeleton for `$1.99` paid model exports
+- Local-only prototype flow with no sign-in or payments
 
 ## Tech Stack
 
@@ -34,13 +39,18 @@ A low-cost web app with multiple browser-based design tools for creating simple 
 - Konva.js for the 2D editor
 - Three.js for 3D preview
 - Cloudflare Pages + Workers + D1 for cheap hosting
-- Stripe Checkout for `$1.99` paid model exports
 
 ## Local Development
 
 ```bash
 npm install
 npm run dev
+```
+
+Run the local slice/print bridge:
+
+```bash
+npm run bridge
 ```
 
 Run tests:
@@ -65,15 +75,10 @@ npm run build
 npx wrangler d1 migrations apply og-modeler
 ```
 
-4. Add production secrets:
+4. Add production secrets when backend features are enabled:
 
 ```bash
-npx wrangler pages secret put STRIPE_SECRET_KEY
-npx wrangler pages secret put STRIPE_WEBHOOK_SECRET
 npx wrangler pages secret put APP_URL
-npx wrangler pages secret put AUTH_SECRET
-npx wrangler pages secret put GOOGLE_CLIENT_ID
-npx wrangler pages secret put GOOGLE_CLIENT_SECRET
 ```
 
 5. Deploy:
@@ -82,22 +87,53 @@ npx wrangler pages secret put GOOGLE_CLIENT_SECRET
 npm run worker:deploy
 ```
 
-## Billing Rule
-
-Each user gets two free model exports. After that, the app sends them to Stripe Checkout for a `$1.99` paid model export.
-
-Free export usage is stored against the signed-in Google account email. The backend still accepts the `X-User-Email` header as a local development fallback, but production should use Google SSO.
-
-## Google SSO
-
-Create a Google OAuth web client with this redirect URL:
-
-```txt
-https://your-domain.com/api/auth/google/callback
-```
-
-Set `APP_URL` to the deployed site origin, for example:
+Set `APP_URL` to the deployed site origin when using Cloudflare Functions, for example:
 
 ```txt
 https://your-domain.com
 ```
+
+## Local Print Bridge
+
+The browser app can send generated STL files to a local bridge service at a URL such as:
+
+```txt
+http://10.115.91.3:8787
+```
+
+The bridge accepts the model, runs a configured slicer, and then either:
+
+- runs a configured print command, or
+- returns the sliced file to the browser for download.
+
+Start the bridge:
+
+```bash
+npm run bridge
+```
+
+Configure slicing with environment variables:
+
+```bash
+OG_SLICER_COMMAND="your-slicer-command {input} {output} {outputDir}" npm run bridge
+```
+
+Placeholders:
+
+- `{input}`: generated STL from OG-Modeler
+- `{output}`: expected sliced output, usually `.gcode.3mf`
+- `{outputDir}`: temporary job directory
+
+If your slicer writes to a different path, set:
+
+```bash
+OG_SLICED_OUTPUT="/path/or/template/to/output.gcode.3mf"
+```
+
+To send the sliced file to a printer, configure:
+
+```bash
+OG_PRINT_COMMAND="your-printer-send-command {output}" npm run bridge
+```
+
+If `OG_PRINT_COMMAND` is not set, the bridge returns the sliced file to the phone/browser instead of printing.

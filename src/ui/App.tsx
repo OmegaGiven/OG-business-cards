@@ -2,7 +2,6 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Box,
-  CreditCard,
   Trash2,
   Download,
   FileText,
@@ -10,9 +9,6 @@ import {
   FilePlus2,
   HelpCircle,
   Layers,
-  LogIn,
-  LogOut,
-  Mail,
   MoveHorizontal,
   MoveVertical,
   Palette,
@@ -20,7 +16,9 @@ import {
   RotateCw,
   Ruler,
   Save,
+  Send,
   Settings,
+  CircleDot,
   Type,
   Undo2,
   X,
@@ -29,21 +27,13 @@ import {
 } from "lucide-react";
 import { Group, Layer, Rect, Stage, Text as KonvaText } from "react-konva";
 import QRCode from "qrcode";
-import {
-  authorizeStlExport,
-  createStlCheckout,
-  getCurrentUser,
-  logout,
-  saveDesignToCloud,
-  SessionUser,
-  startGoogleLogin,
-} from "../lib/api";
+import { loadBridgeUrl, saveBridgeUrl, sendModelToBridge, stlFilename } from "../lib/bridge";
 import { designToSvg, downloadText, exportPdf, exportPngFromDesign, safeName } from "../lib/export2d";
 import { validatePrintability } from "../lib/printability";
 import { createQrMatrix } from "../lib/qr";
 import { extractSafeSvgPathData } from "../lib/sanitizeSvg";
 import { designToAsciiStl } from "../lib/stl";
-import { loadLocalDesign, loadUserEmail, saveLocalDesign, saveUserEmail } from "../lib/storage";
+import { loadLocalDesign, saveLocalDesign } from "../lib/storage";
 import {
   CARD_SIZES,
   CardSide,
@@ -52,19 +42,22 @@ import {
   Design,
   getCardSize,
   getElementSize,
+  getPrintSettings,
   inchesToMm,
   mmToInches,
   mmToPx,
   PRINT_DEFAULTS,
   pxToMm,
 } from "../shared/design";
+import { createId } from "../shared/id";
 import { LidMakerTool } from "./LidMakerTool";
 import { ThreePreview } from "./ThreePreview";
+import { WasherTool } from "./WasherTool";
 
 const MAX_SCALE = 8;
 const MAX_HISTORY = 80;
 const FONTS = ["Inter", "Arial", "Georgia", "Courier New", "Trebuchet MS"];
-type ActiveTool = "business-card" | "lid-maker";
+type ActiveTool = "business-card" | "lid-maker" | "washer";
 
 interface DesignHistory {
   past: Design[];
@@ -80,8 +73,6 @@ export function App() {
   }));
   const design = history.present;
   const [selectedId, setSelectedId] = useState(design.side.elements[0]?.id ?? "");
-  const [email, setEmail] = useState(loadUserEmail());
-  const [user, setUser] = useState<SessionUser | null>(null);
   const [activeTool, setActiveTool] = useState<ActiveTool>("business-card");
   const [view, setView] = useState<"editor" | "export">("editor");
   const [status, setStatus] = useState("");
@@ -105,18 +96,6 @@ export function App() {
   }, [design]);
 
   useEffect(() => () => stopViewportPan(), []);
-
-  useEffect(() => {
-    getCurrentUser().then(setUser).catch(() => setUser(null));
-  }, []);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("signedIn") === "1" && window.opener) {
-      window.opener.postMessage({ type: "og-modeler-auth-complete" }, window.location.origin);
-      window.close();
-    }
-  }, []);
 
   useEffect(() => {
     const element = editorRef.current;
@@ -235,7 +214,7 @@ export function App() {
 
   function addText() {
     const element: CardElement = {
-      id: crypto.randomUUID(),
+      id: createId(),
       type: "text",
       text: "New text",
       fontFamily: "Inter",
@@ -253,7 +232,7 @@ export function App() {
 
   function addShape(shape: "rect" | "circle") {
     appendElement({
-      id: crypto.randomUUID(),
+      id: createId(),
       type: "shape",
       shape,
       widthMm: 14,
@@ -274,7 +253,7 @@ export function App() {
     }
     await QRCode.toDataURL(value);
     appendElement({
-      id: crypto.randomUUID(),
+      id: createId(),
       type: "qr",
       value,
       widthMm: 14,
@@ -297,7 +276,7 @@ export function App() {
       const svg = await file.text();
       const path = extractSafeSvgPathData(svg);
       appendElement({
-        id: crypto.randomUUID(),
+        id: createId(),
         type: "svg-logo",
         svgPathData: path,
         widthMm: 18,
@@ -317,41 +296,20 @@ export function App() {
     }
   }
 
-  async function saveCloud() {
-    const fallbackEmail = email.includes("@") ? email : undefined;
-    if (!user && !fallbackEmail) {
-      setStatus("Sign in with Google before saving.");
-      return;
-    }
-    if (fallbackEmail) {
-      saveUserEmail(fallbackEmail);
-    }
-    await saveDesignToCloud(design, fallbackEmail);
-    setStatus("Design saved.");
+  function saveDesign() {
+    saveLocalDesign(design);
+    setStatus("Design saved locally.");
   }
 
-  async function exportStl() {
+  function exportStl() {
     const errors = validatePrintability(design).filter((warning) => warning.severity === "error");
     if (errors.length > 0) {
       setStatus(`Fix ${errors.length} printability error${errors.length === 1 ? "" : "s"} before STL export.`);
       return;
     }
 
-    const fallbackEmail = email.includes("@") ? email : undefined;
-    if (!user && !fallbackEmail) {
-      setStatus("Sign in with Google before exporting STL.");
-      return;
-    }
-
-    const result = await authorizeStlExport(fallbackEmail);
-    if (!result.allowed) {
-      const checkout = await createStlCheckout(fallbackEmail);
-      window.location.href = checkout.checkoutUrl;
-      return;
-    }
-
     downloadText(`${safeName(design.name)}.stl`, designToAsciiStl(design), "model/stl");
-    setStatus("STL export authorized and downloaded.");
+    setStatus("STL downloaded.");
   }
 
   function selectElement(element: CardElement) {
@@ -468,52 +426,20 @@ export function App() {
     setShowSettings(false);
   }
 
-  async function signOut() {
-    await logout();
-    setUser(null);
-    setStatus("Signed out.");
-  }
-
-  function signIn() {
-    const popup = startGoogleLogin();
-    if (!popup) {
-      return;
-    }
-
-    const refreshSession = async () => {
-      setUser(await getCurrentUser());
-      setStatus("Signed in.");
-    };
-
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.data?.type !== "og-modeler-auth-complete") {
-        return;
-      }
-      window.removeEventListener("message", onMessage);
-      clearInterval(poll);
-      void refreshSession();
-    };
-
-    const poll = window.setInterval(() => {
-      if (popup.closed) {
-        window.removeEventListener("message", onMessage);
-        clearInterval(poll);
-        void refreshSession();
-      }
-    }, 500);
-
-    window.addEventListener("message", onMessage);
-  }
-
   if (activeTool === "lid-maker") {
     return (
       <main className="mobile-shell">
-        <ToolNav activeTool={activeTool} selectTool={selectTool} user={user} signIn={signIn} signOut={signOut} />
-        <LidMakerTool
-          email={email}
-          user={user}
-          refreshUser={async () => setUser(await getCurrentUser())}
-        />
+        <ToolNav activeTool={activeTool} selectTool={selectTool} />
+        <LidMakerTool />
+      </main>
+    );
+  }
+
+  if (activeTool === "washer") {
+    return (
+      <main className="mobile-shell">
+        <ToolNav activeTool={activeTool} selectTool={selectTool} />
+        <WasherTool />
       </main>
     );
   }
@@ -522,31 +448,21 @@ export function App() {
     return (
       <ExportScreen
         design={design}
-        user={user}
         status={status}
         warnings={warnings}
-        fallbackEmail={email}
-        setFallbackEmail={setEmail}
         setStatus={setStatus}
-        saveCloud={saveCloud}
+        saveDesign={saveDesign}
         exportStl={exportStl}
         activeTool={activeTool}
         selectTool={selectTool}
-        signIn={signIn}
-        signOut={signOut}
         back={() => setView("editor")}
-        buyExport={async () => {
-          const checkout = await createStlCheckout(email.includes("@") ? email : undefined);
-          window.location.href = checkout.checkoutUrl;
-        }}
-        refreshUser={async () => setUser(await getCurrentUser())}
       />
     );
   }
 
   return (
     <main className="mobile-shell">
-      <ToolNav activeTool={activeTool} selectTool={selectTool} user={user} signIn={signIn} signOut={signOut} />
+      <ToolNav activeTool={activeTool} selectTool={selectTool} />
       <header className="top-bar">
         <div className="brand-strip">
           <input
@@ -572,7 +488,7 @@ export function App() {
           <IconButton label="Add text" icon={<Type size={19} />} onClick={addText} />
           <IconButton label="Add QR" icon={<QrIcon />} onClick={addQr} />
           <IconButton label="Import SVG" icon={<Image size={19} />} onClick={() => fileInputRef.current?.click()} />
-          <IconButton label="Save" icon={<Save size={19} />} onClick={saveCloud} />
+          <IconButton label="Save" icon={<Save size={19} />} onClick={saveDesign} />
         </div>
         <input ref={fileInputRef} type="file" accept=".svg,image/svg+xml" hidden onChange={importSvg} />
       </header>
@@ -621,10 +537,8 @@ export function App() {
         ) : (
           <SettingsPanel
             design={design}
-            email={email}
             status={status}
             warnings={warnings}
-            setEmail={setEmail}
             updateDesign={updateDesign}
           />
         )}
@@ -637,7 +551,7 @@ export function App() {
       <section className="card-actions">
         <button onClick={() => setView("export")}>
           <Download size={20} />
-          <span>{modelExportLabel(user)}</span>
+          <span>Export</span>
         </button>
       </section>
 
@@ -666,38 +580,48 @@ export function App() {
 
 function ExportScreen(props: {
   design: Design;
-  user: SessionUser | null;
   status: string;
   warnings: ReturnType<typeof validatePrintability>;
-  fallbackEmail: string;
-  setFallbackEmail: (email: string) => void;
   setStatus: (status: string) => void;
-  saveCloud: () => Promise<void>;
-  exportStl: () => Promise<void>;
-  buyExport: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  saveDesign: () => void;
+  exportStl: () => void;
   activeTool: ActiveTool;
   selectTool: (tool: ActiveTool) => void;
-  signIn: () => void;
-  signOut: () => void;
   back: () => void;
 }) {
   const size = getCardSize(props.design);
   const svg = designToSvg(props.design);
+  const [bridgeUrl, setBridgeUrl] = useState(loadBridgeUrl);
 
   async function runExport(action: () => void | Promise<void>, success: string) {
     try {
       await action();
       props.setStatus(success);
-      await props.refreshUser();
     } catch (error) {
       props.setStatus(error instanceof Error ? error.message : "Export failed.");
     }
   }
 
+  async function sendStlToBridge() {
+    const errors = props.warnings.filter((warning) => warning.severity === "error");
+    if (errors.length > 0) {
+      props.setStatus(`Fix ${errors.length} printability error${errors.length === 1 ? "" : "s"} before sending to bridge.`);
+      return;
+    }
+
+    saveBridgeUrl(bridgeUrl);
+    const result = await sendModelToBridge({
+      bridgeUrl,
+      filename: stlFilename(props.design.name),
+      stl: designToAsciiStl(props.design),
+      action: "print",
+    });
+    props.setStatus(result.printed ? "Bridge sent the job to print." : result.message);
+  }
+
   return (
     <main className="export-shell">
-      <ToolNav activeTool={props.activeTool} selectTool={props.selectTool} user={props.user} signIn={props.signIn} signOut={props.signOut} />
+      <ToolNav activeTool={props.activeTool} selectTool={props.selectTool} />
       <header className="export-header">
         <button title="Back to editor" aria-label="Back to editor" onClick={props.back}>
           <ArrowLeft size={20} />
@@ -713,14 +637,12 @@ function ExportScreen(props: {
         <span>{size.widthMm}mm x {size.heightMm}mm x {props.design.thicknessMm}mm</span>
       </section>
 
-      {!props.user && (
-        <section className="export-account">
-            <label>
-              Dev fallback email
-              <input value={props.fallbackEmail} onChange={(event) => props.setFallbackEmail(event.target.value)} placeholder="you@example.com" />
-            </label>
-        </section>
-      )}
+      <section className="bridge-config">
+        <label>
+          <span>Bridge URL</span>
+          <input value={bridgeUrl} onChange={(event) => setBridgeUrl(event.target.value)} placeholder="http://printer-bridge.local:8787" />
+        </label>
+      </section>
 
       <section className="export-options">
         <button onClick={() => runExport(() => downloadText(`${safeName(props.design.name)}.svg`, svg, "image/svg+xml"), "SVG downloaded.")}>
@@ -737,15 +659,15 @@ function ExportScreen(props: {
         </button>
         <button onClick={() => runExport(props.exportStl, "STL downloaded.")}>
           <Box size={20} />
-          <span>{modelExportLabel(props.user)}</span>
+          <span>STL</span>
         </button>
-        <button onClick={() => runExport(props.saveCloud, "Design saved.")}>
+        <button onClick={() => runExport(props.saveDesign, "Design saved locally.")}>
           <Save size={20} />
           <span>Save</span>
         </button>
-        <button onClick={() => runExport(props.buyExport, "Opening checkout.")}>
-          <CreditCard size={20} />
-          <span>Pay $1.99 to export</span>
+        <button onClick={() => runExport(sendStlToBridge, "Bridge completed.")}>
+          <Send size={20} />
+          <span>Send to bridge</span>
         </button>
       </section>
 
@@ -765,13 +687,7 @@ function ExportScreen(props: {
   );
 }
 
-function ToolNav(props: {
-  activeTool: ActiveTool;
-  selectTool: (tool: ActiveTool) => void;
-  user?: SessionUser | null;
-  signIn?: () => void;
-  signOut?: () => void;
-}) {
+function ToolNav(props: { activeTool: ActiveTool; selectTool: (tool: ActiveTool) => void }) {
   return (
     <nav className="tool-nav" aria-label="Tool navigation">
       <button className={`tool-tab ${props.activeTool === "business-card" ? "active" : ""}`} onClick={() => props.selectTool("business-card")}>
@@ -782,30 +698,12 @@ function ToolNav(props: {
         <Ruler size={18} />
         <span>Lids</span>
       </button>
-      {props.user ? (
-        <button className="account-tab" title={props.user.email} onClick={props.signOut}>
-          <LogOut size={18} />
-          <span>{modelExportLabel(props.user)}</span>
-        </button>
-      ) : (
-        <button className="account-tab" onClick={props.signIn}>
-          <LogIn size={18} />
-          <span>Sign in</span>
-        </button>
-      )}
+      <button className={`tool-tab ${props.activeTool === "washer" ? "active" : ""}`} onClick={() => props.selectTool("washer")}>
+        <CircleDot size={18} />
+        <span>Washers</span>
+      </button>
     </nav>
   );
-}
-
-function modelExportLabel(user: SessionUser | null | undefined) {
-  if (!user) {
-    return "Sign in to export";
-  }
-  const freeExports = Math.max(0, 2 - user.stlExportCount);
-  if (freeExports > 0) {
-    return `${freeExports} free export${freeExports === 1 ? "" : "s"}`;
-  }
-  return "$1.99 export";
 }
 
 function DesignNode(props: {
@@ -978,14 +876,13 @@ function Controls(props: {
 
 function SettingsPanel(props: {
   design: Design;
-  email: string;
   status: string;
   warnings: ReturnType<typeof validatePrintability>;
-  setEmail: (email: string) => void;
   updateDesign: (updater: (current: Design) => Design) => void;
 }) {
   const [customUnit, setCustomUnit] = useState<"mm" | "in">("mm");
   const size = getCardSize(props.design);
+  const printSettings = getPrintSettings(props.design);
   const customWidthValue = customUnit === "in" ? Number(mmToInches(size.widthMm).toFixed(3)) : Number(size.widthMm.toFixed(1));
   const customHeightValue = customUnit === "in" ? Number(mmToInches(size.heightMm).toFixed(3)) : Number(size.heightMm.toFixed(1));
 
@@ -1026,10 +923,6 @@ function SettingsPanel(props: {
         <strong>Settings</strong>
         <span>{props.warnings.length ? `${props.warnings.length} warnings` : "print checks clear"}</span>
       </div>
-      <label className="wide">
-        <FieldIcon title="Dev fallback email" icon={<Mail size={18} />} />
-        <input value={props.email} onChange={(event) => props.setEmail(event.target.value)} placeholder="you@example.com" />
-      </label>
       <label className="wide">
         <FieldIcon title="Card size" icon={<Box size={18} />} />
         <select value={props.design.cardSize} onChange={(event) => updateCardPreset(event.target.value)}>
@@ -1080,6 +973,27 @@ function SettingsPanel(props: {
           step="0.1"
           value={props.design.thicknessMm}
           onChange={(event) => props.updateDesign((current) => ({ ...current, thicknessMm: Number(event.target.value) }))}
+        />
+      </label>
+      <label>
+        <FieldIcon title="Nozzle" icon={<Ruler size={18} />} />
+        <input
+          type="number"
+          min="0.2"
+          max="1"
+          step="0.05"
+          value={printSettings.nozzleDiameterMm}
+          onChange={(event) => props.updateDesign((current) => ({ ...current, nozzleDiameterMm: Number(event.target.value) }))}
+        />
+      </label>
+      <label>
+        <FieldIcon title="Tolerance" icon={<MoveHorizontal size={18} />} />
+        <input
+          type="number"
+          min="0"
+          step="0.05"
+          value={printSettings.toleranceMm}
+          onChange={(event) => props.updateDesign((current) => ({ ...current, toleranceMm: Number(event.target.value) }))}
         />
       </label>
       <div className="warnings wide">
@@ -1149,8 +1063,8 @@ function GuideDialog(props: { close: () => void }) {
           <GuideItem icon={<MoveHorizontal size={18} />} title="Move" text="Tap to select, then drag to move an element. Drag empty space to pan when zoomed in." />
           <GuideItem icon={<QrIcon />} title="QR" text="Add a live QR code." />
           <GuideItem icon={<Image size={18} />} title="SVG" text="Import a simple SVG logo path." />
-          <GuideItem icon={<Save size={18} />} title="Save" text="Save the design to the cloud when signed in." />
-          <GuideItem icon={<Download size={18} />} title="Export" text="Open STL, PDF, SVG, PNG, and payment options." />
+          <GuideItem icon={<Save size={18} />} title="Save" text="Save the design locally in this browser." />
+          <GuideItem icon={<Download size={18} />} title="Export" text="Open STL, PDF, SVG, and PNG options." />
         </div>
       </div>
     </div>

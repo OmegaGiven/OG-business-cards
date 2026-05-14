@@ -49,7 +49,7 @@ select:disabled {
 
 .tool-nav {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(128px, 1.2fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 10px 12px;
   background: #1f292e;
@@ -78,12 +78,6 @@ select:disabled {
   border-color: #f0c36a;
   background: #46544a;
   color: #fff8e8;
-}
-
-.tool-nav .account-tab {
-  border-color: #829083;
-  background: #34444b;
-  color: #f7f3e8;
 }
 
 .top-bar {
@@ -417,8 +411,7 @@ select:disabled {
   align-items: center;
 }
 
-.export-header button,
-.export-login {
+.export-header button {
   border: 1px solid #829083;
   border-radius: 6px;
   background: #34444b;
@@ -465,43 +458,25 @@ select:disabled {
   font-size: 13px;
 }
 
-.export-account {
-  display: grid;
-  gap: 10px;
+.bridge-config {
   max-width: 680px;
   width: 100%;
   margin: 0 auto;
-  padding: 12px;
-  border: 1px solid #cec5b5;
-  border-radius: 8px;
-  background: #fbfaf6;
 }
 
-.export-account strong,
-.export-account span {
-  display: block;
+.bridge-config.compact {
+  max-width: 760px;
 }
 
-.export-account span {
-  color: #536058;
+.bridge-config label {
+  display: grid;
+  gap: 6px;
+  color: #35433a;
   font-size: 13px;
 }
 
-.export-login {
-  min-height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.export-account label {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  color: #35433a;
-  font-size: 12px;
+.bridge-config span {
+  font-weight: 650;
 }
 
 .export-options {
@@ -525,7 +500,6 @@ select:disabled {
 }
 
 .export-options button:hover,
-.export-login:hover,
 .export-header button:hover {
   background: #46544a;
 }
@@ -659,23 +633,6 @@ select:disabled {
   font-weight: 650;
 }
 
-.lid-account {
-  max-width: 760px;
-}
-
-.lid-account .text-button {
-  width: auto;
-  margin-top: 10px;
-  border: 1px solid #829083;
-  border-radius: 6px;
-  color: #f7f3e8;
-  background: #34444b;
-  padding: 9px 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
 .lid-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -696,8 +653,7 @@ select:disabled {
   gap: 4px;
 }
 
-.lid-actions button:hover,
-.lid-account .text-button:hover {
+.lid-actions button:hover {
   background: #46544a;
 }
 
@@ -816,8 +772,7 @@ select:disabled {
 
 @media (max-width: 420px) {
   .control-panel label,
-  .control-panel label.wide,
-  .export-account label {
+  .control-panel label.wide {
     grid-template-columns: 38px minmax(0, 1fr);
   }
 

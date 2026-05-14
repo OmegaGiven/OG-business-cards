@@ -45,7 +45,7 @@ describe("lidToAsciiStl", () => {
       geometry.dispose();
     }
 
-    expect(box.max.x - box.min.x).toBeCloseTo(56, 1);
-    expect(box.max.y - box.min.y).toBeCloseTo(36, 1);
+    expect(box.max.x - box.min.x).toBeCloseTo(56.2, 1);
+    expect(box.max.y - box.min.y).toBeCloseTo(36.2, 1);
   });
 });

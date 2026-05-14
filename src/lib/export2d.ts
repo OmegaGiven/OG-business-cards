@@ -17,6 +17,14 @@ export function downloadText(filename: string, content: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+export function downloadBlob(filename: string, content: Uint8Array, type: string) {
+  const bytes = new ArrayBuffer(content.byteLength);
+  new Uint8Array(bytes).set(content);
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  downloadUrl(filename, url);
+  URL.revokeObjectURL(url);
+}
+
 export function downloadUrl(filename: string, url: string) {
   const link = document.createElement("a");
   link.href = url;

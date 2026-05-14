@@ -1,4 +1,4 @@
-import { CardElement, Design, getCardSize, getElementSize, PRINT_DEFAULTS } from "../shared/design";
+import { CardElement, Design, getCardSize, getElementSize, getPrintSettings, PRINT_DEFAULTS } from "../shared/design";
 
 export interface PrintWarning {
   id: string;
@@ -10,6 +10,9 @@ export function validatePrintability(design: Design): PrintWarning[] {
   const warnings: PrintWarning[] = [];
   const size = getCardSize(design);
   const elements = design.side.elements;
+  const printSettings = getPrintSettings(design);
+  const minimumFeatureMm = Math.max(PRINT_DEFAULTS.minimumFeatureMm, printSettings.nozzleDiameterMm * 2);
+  const minimumGapMm = Math.max(PRINT_DEFAULTS.minimumGapMm, printSettings.nozzleDiameterMm + printSettings.toleranceMm);
 
   if (design.thicknessMm < 0.8) {
     warnings.push({
@@ -21,11 +24,19 @@ export function validatePrintability(design: Design): PrintWarning[] {
 
   for (const element of elements) {
     const bounds = getElementSize(element);
-    if (bounds.widthMm < PRINT_DEFAULTS.minimumFeatureMm || bounds.heightMm < PRINT_DEFAULTS.minimumFeatureMm) {
+    if (bounds.widthMm < minimumFeatureMm || bounds.heightMm < minimumFeatureMm) {
       warnings.push({
         id: element.id,
         severity: "warning",
-        message: `${labelFor(element)} has a feature thinner than ${PRINT_DEFAULTS.minimumFeatureMm}mm.`,
+        message: `${labelFor(element)} has a feature thinner than ${formatMm(minimumFeatureMm)}mm for a ${formatMm(printSettings.nozzleDiameterMm)}mm nozzle.`,
+      });
+    }
+
+    if ("widthMm" in element && (element.widthMm < printSettings.nozzleDiameterMm || element.heightMm < printSettings.nozzleDiameterMm)) {
+      warnings.push({
+        id: `${element.id}-nozzle`,
+        severity: "warning",
+        message: `${labelFor(element)} has a dimension smaller than the nozzle diameter and may slice unpredictably.`,
       });
     }
 
@@ -64,17 +75,21 @@ export function validatePrintability(design: Design): PrintWarning[] {
 
   for (let i = 0; i < elements.length; i += 1) {
     for (let j = i + 1; j < elements.length; j += 1) {
-      if (gapBetween(elements[i], elements[j]) < PRINT_DEFAULTS.minimumGapMm) {
+      if (gapBetween(elements[i], elements[j]) < minimumGapMm) {
         warnings.push({
           id: `${elements[i].id}-${elements[j].id}`,
           severity: "warning",
-          message: `Two details are closer than ${PRINT_DEFAULTS.minimumGapMm}mm.`,
+          message: `Two details are closer than ${formatMm(minimumGapMm)}mm after nozzle/tolerance settings.`,
         });
       }
     }
   }
 
   return warnings;
+}
+
+function formatMm(value: number) {
+  return `${Number(value.toFixed(2))}`;
 }
 
 export function hasDetachedCutTextIslands(text: string) {

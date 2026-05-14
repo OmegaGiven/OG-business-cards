@@ -1,26 +1,16 @@
 import { ReactNode, useMemo, useState } from "react";
-import { Box, Circle, CreditCard, Download, MoveHorizontal, MoveVertical, Ruler, Square } from "lucide-react";
-import {
-  authorizeStlExport,
-  createStlCheckout,
-  SessionUser,
-} from "../lib/api";
+import { Box, Circle, Download, MoveHorizontal, MoveVertical, Ruler, Send, Square } from "lucide-react";
+import { loadBridgeUrl, saveBridgeUrl, sendModelToBridge, stlFilename } from "../lib/bridge";
 import { downloadText, safeName } from "../lib/export2d";
 import { createInitialLidDesign, LidDesign, lidSizeLabel, lidToAsciiStl } from "../lib/lid";
-import { saveUserEmail } from "../lib/storage";
 import { inchesToMm, mmToInches } from "../shared/design";
 import { LidPreview } from "./LidPreview";
 
-interface LidMakerToolProps {
-  email: string;
-  user: SessionUser | null;
-  refreshUser: () => Promise<void>;
-}
-
-export function LidMakerTool(props: LidMakerToolProps) {
+export function LidMakerTool() {
   const [lid, setLid] = useState<LidDesign>(() => createInitialLidDesign());
   const [unit, setUnit] = useState<"mm" | "in">("mm");
   const [status, setStatus] = useState("");
+  const [bridgeUrl, setBridgeUrl] = useState(loadBridgeUrl);
   const warnings = useMemo(() => validateLid(lid), [lid]);
   const fitDimensionLabel = lid.fit === "outer" ? "Object outer" : "Opening inner";
 
@@ -36,45 +26,35 @@ export function LidMakerTool(props: LidMakerToolProps) {
     return unit === "in" ? inchesToMm(value) : value;
   }
 
-  async function buyExport() {
-    try {
-      const checkout = await createStlCheckout(props.email.includes("@") ? props.email : undefined);
-      window.location.href = checkout.checkoutUrl;
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not open checkout.");
-    }
-  }
-
-  async function exportStl() {
+  function exportStl() {
     const errors = warnings.filter((warning) => warning.severity === "error");
     if (errors.length > 0) {
       setStatus(`Fix ${errors.length} lid setting${errors.length === 1 ? "" : "s"} before STL export.`);
       return;
     }
 
-    const fallbackEmail = props.email.includes("@") ? props.email : undefined;
-    if (fallbackEmail) {
-      saveUserEmail(fallbackEmail);
+    downloadText(`${safeName(lid.name)}.stl`, lidToAsciiStl(lid), "model/stl");
+    setStatus("STL downloaded.");
+  }
+
+  async function sendToBridge() {
+    const errors = warnings.filter((warning) => warning.severity === "error");
+    if (errors.length > 0) {
+      setStatus(`Fix ${errors.length} lid setting${errors.length === 1 ? "" : "s"} before sending to bridge.`);
+      return;
     }
 
     try {
-      if (!props.user && !fallbackEmail) {
-        setStatus("Sign in with Google before exporting STL.");
-        return;
-      }
-
-      const result = await authorizeStlExport(fallbackEmail);
-      if (!result.allowed) {
-        const checkout = await createStlCheckout(fallbackEmail);
-        window.location.href = checkout.checkoutUrl;
-        return;
-      }
-
-      downloadText(`${safeName(lid.name)}.stl`, lidToAsciiStl(lid), "model/stl");
-      setStatus("Model export authorized and downloaded.");
-      await props.refreshUser();
+      saveBridgeUrl(bridgeUrl);
+      const result = await sendModelToBridge({
+        bridgeUrl,
+        filename: stlFilename(lid.name),
+        stl: lidToAsciiStl(lid),
+        action: "print",
+      });
+      setStatus(result.printed ? "Bridge sent the job to print." : result.message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "STL export failed.");
+      setStatus(error instanceof Error ? error.message : "Bridge request failed.");
     }
   }
 
@@ -167,16 +147,31 @@ export function LidMakerTool(props: LidMakerToolProps) {
           <FieldLabel icon={<MoveVertical size={18} />} title="Lip inset" />
           <input type="number" min="0" step="0.1" value={lid.rimInsetMm} onChange={(event) => updateLid({ rimInsetMm: Number(event.target.value) })} />
         </label>
+        <label>
+          <FieldLabel icon={<Ruler size={18} />} title="Nozzle" />
+          <input type="number" min="0.2" max="1" step="0.05" value={lid.nozzleDiameterMm} onChange={(event) => updateLid({ nozzleDiameterMm: Number(event.target.value) })} />
+        </label>
+        <label>
+          <FieldLabel icon={<MoveHorizontal size={18} />} title="Tolerance" />
+          <input type="number" min="0" step="0.05" value={lid.toleranceMm} onChange={(event) => updateLid({ toleranceMm: Number(event.target.value) })} />
+        </label>
       </div>
+
+      <section className="bridge-config compact">
+        <label>
+          <span>Bridge URL</span>
+          <input value={bridgeUrl} onChange={(event) => setBridgeUrl(event.target.value)} placeholder="http://printer-bridge.local:8787" />
+        </label>
+      </section>
 
       <div className="lid-actions">
         <button onClick={exportStl}>
           <Download size={20} />
-          <span>{modelExportLabel(props.user)}</span>
+          <span>Export STL</span>
         </button>
-        <button onClick={buyExport}>
-          <CreditCard size={20} />
-          <span>Pay $1.99 to export</span>
+        <button onClick={sendToBridge}>
+          <Send size={20} />
+          <span>Send to bridge</span>
         </button>
       </div>
 
@@ -194,17 +189,6 @@ export function LidMakerTool(props: LidMakerToolProps) {
       <p className="export-status">{status}</p>
     </section>
   );
-}
-
-function modelExportLabel(user: SessionUser | null) {
-  if (!user) {
-    return "Sign in to export";
-  }
-  const freeExports = Math.max(0, 2 - user.stlExportCount);
-  if (freeExports > 0) {
-    return `${freeExports} free export${freeExports === 1 ? "" : "s"}`;
-  }
-  return "$1.99 export";
 }
 
 function FieldLabel(props: { icon: ReactNode; title: string }) {
@@ -227,6 +211,12 @@ function validateLid(lid: LidDesign) {
   }
   if (lid.rimWallMm < 0.8) {
     warnings.push({ id: "rim-wall", severity: "warning", message: "Rim walls under 0.8mm may be fragile on common FDM printers." });
+  }
+  if (lid.rimWallMm < lid.nozzleDiameterMm * 2) {
+    warnings.push({ id: "rim-nozzle", severity: "warning", message: `Lip wall is less than two nozzle widths for a ${lid.nozzleDiameterMm}mm nozzle.` });
+  }
+  if (lid.rimInsetMm > 0 && lid.rimInsetMm < lid.nozzleDiameterMm) {
+    warnings.push({ id: "rim-inset", severity: "warning", message: "Lip inset is smaller than the nozzle diameter and may not slice cleanly." });
   }
   if (lid.fit === "inner" && lid.rimInsetMm + lid.rimWallMm >= minBody / 2) {
     warnings.push({ id: "rim-fit", severity: "error", message: "Rim inset and wall are too large for this lid size." });

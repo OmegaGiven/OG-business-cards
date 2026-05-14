@@ -55,4 +55,42 @@ describe("validatePrintability", () => {
 
     expect(validatePrintability(design).some((warning) => warning.id === "qr-cut" && warning.severity === "error")).toBe(true);
   });
+
+  it("uses nozzle and tolerance settings for feature and gap warnings", () => {
+    const design = createInitialDesign();
+    design.nozzleDiameterMm = 1;
+    design.toleranceMm = 0.4;
+    design.side.elements = [
+      {
+        id: "tiny",
+        type: "shape",
+        shape: "rect",
+        widthMm: 1.5,
+        heightMm: 1.5,
+        xMm: 5,
+        yMm: 5,
+        rotationDeg: 0,
+        color: "#111111",
+        mode: "raised",
+        depthMm: 0.6,
+      },
+      {
+        id: "near",
+        type: "shape",
+        shape: "rect",
+        widthMm: 5,
+        heightMm: 5,
+        xMm: 6.8,
+        yMm: 5,
+        rotationDeg: 0,
+        color: "#111111",
+        mode: "raised",
+        depthMm: 0.6,
+      },
+    ];
+
+    const warnings = validatePrintability(design);
+    expect(warnings.some((warning) => warning.id === "tiny" && warning.message.includes("1mm nozzle"))).toBe(true);
+    expect(warnings.some((warning) => warning.id === "tiny-near" && warning.message.includes("nozzle/tolerance"))).toBe(true);
+  });
 });

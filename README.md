@@ -33,8 +33,6 @@ OG-3dmodeler is a phone-friendly browser app for making small, practical 3D-prin
 
 ## Prototype Behavior
 
-- No sign-in
-- No payment flow
 - Designs are saved locally in the browser
 - STL generation happens in the browser
 - Optional bridge sends generated STL files to a local slicer/printer workflow

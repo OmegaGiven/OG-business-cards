@@ -1,6 +1,5 @@
 import { ReactNode, useMemo, useState } from "react";
-import { Box, Circle, Download, MoveHorizontal, MoveVertical, Ruler, Send, Square } from "lucide-react";
-import { loadBridgeUrl, saveBridgeUrl, sendModelToBridge, stlFilename } from "../lib/bridge";
+import { Box, Circle, Download, MoveHorizontal, MoveVertical, Ruler, Square } from "lucide-react";
 import { downloadText, safeName } from "../lib/export2d";
 import { createInitialLidDesign, LidDesign, lidSizeLabel, lidToAsciiStl } from "../lib/lid";
 import { inchesToMm, mmToInches } from "../shared/design";
@@ -10,7 +9,6 @@ export function LidMakerTool() {
   const [lid, setLid] = useState<LidDesign>(() => createInitialLidDesign());
   const [unit, setUnit] = useState<"mm" | "in">("mm");
   const [status, setStatus] = useState("");
-  const [bridgeUrl, setBridgeUrl] = useState(loadBridgeUrl);
   const warnings = useMemo(() => validateLid(lid), [lid]);
   const fitDimensionLabel = lid.fit === "outer" ? "Object outer" : "Opening inner";
 
@@ -35,27 +33,6 @@ export function LidMakerTool() {
 
     downloadText(`${safeName(lid.name)}.stl`, lidToAsciiStl(lid), "model/stl");
     setStatus("STL downloaded.");
-  }
-
-  async function sendToBridge() {
-    const errors = warnings.filter((warning) => warning.severity === "error");
-    if (errors.length > 0) {
-      setStatus(`Fix ${errors.length} lid setting${errors.length === 1 ? "" : "s"} before sending to bridge.`);
-      return;
-    }
-
-    try {
-      saveBridgeUrl(bridgeUrl);
-      const result = await sendModelToBridge({
-        bridgeUrl,
-        filename: stlFilename(lid.name),
-        stl: lidToAsciiStl(lid),
-        action: "print",
-      });
-      setStatus(result.printed ? "Bridge sent the job to print." : result.message);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Bridge request failed.");
-    }
   }
 
   return (
@@ -157,21 +134,10 @@ export function LidMakerTool() {
         </label>
       </div>
 
-      <section className="bridge-config compact">
-        <label>
-          <span>Bridge URL</span>
-          <input value={bridgeUrl} onChange={(event) => setBridgeUrl(event.target.value)} placeholder="http://printer-bridge.local:8787" />
-        </label>
-      </section>
-
       <div className="lid-actions">
         <button onClick={exportStl}>
           <Download size={20} />
           <span>Export STL</span>
-        </button>
-        <button onClick={sendToBridge}>
-          <Send size={20} />
-          <span>Send to bridge</span>
         </button>
       </div>
 

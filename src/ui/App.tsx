@@ -16,7 +16,6 @@ import {
   RotateCw,
   Ruler,
   Save,
-  Send,
   Settings,
   CircleDot,
   Type,
@@ -27,7 +26,6 @@ import {
 } from "lucide-react";
 import { Group, Layer, Rect, Stage, Text as KonvaText } from "react-konva";
 import QRCode from "qrcode";
-import { loadBridgeUrl, saveBridgeUrl, sendModelToBridge, stlFilename } from "../lib/bridge";
 import { designToSvg, downloadText, exportPdf, exportPngFromDesign, safeName } from "../lib/export2d";
 import { validatePrintability } from "../lib/printability";
 import { createQrMatrix } from "../lib/qr";
@@ -591,7 +589,6 @@ function ExportScreen(props: {
 }) {
   const size = getCardSize(props.design);
   const svg = designToSvg(props.design);
-  const [bridgeUrl, setBridgeUrl] = useState(loadBridgeUrl);
 
   async function runExport(action: () => void | Promise<void>, success: string) {
     try {
@@ -600,23 +597,6 @@ function ExportScreen(props: {
     } catch (error) {
       props.setStatus(error instanceof Error ? error.message : "Export failed.");
     }
-  }
-
-  async function sendStlToBridge() {
-    const errors = props.warnings.filter((warning) => warning.severity === "error");
-    if (errors.length > 0) {
-      props.setStatus(`Fix ${errors.length} printability error${errors.length === 1 ? "" : "s"} before sending to bridge.`);
-      return;
-    }
-
-    saveBridgeUrl(bridgeUrl);
-    const result = await sendModelToBridge({
-      bridgeUrl,
-      filename: stlFilename(props.design.name),
-      stl: designToAsciiStl(props.design),
-      action: "print",
-    });
-    props.setStatus(result.printed ? "Bridge sent the job to print." : result.message);
   }
 
   return (
@@ -635,13 +615,6 @@ function ExportScreen(props: {
       <section className="export-preview">
         <ThreePreview design={props.design} />
         <span>{size.widthMm}mm x {size.heightMm}mm x {props.design.thicknessMm}mm</span>
-      </section>
-
-      <section className="bridge-config">
-        <label>
-          <span>Bridge URL</span>
-          <input value={bridgeUrl} onChange={(event) => setBridgeUrl(event.target.value)} placeholder="http://printer-bridge.local:8787" />
-        </label>
       </section>
 
       <section className="export-options">
@@ -664,10 +637,6 @@ function ExportScreen(props: {
         <button onClick={() => runExport(props.saveDesign, "Design saved locally.")}>
           <Save size={20} />
           <span>Save</span>
-        </button>
-        <button onClick={() => runExport(sendStlToBridge, "Bridge completed.")}>
-          <Send size={20} />
-          <span>Send to bridge</span>
         </button>
       </section>
 

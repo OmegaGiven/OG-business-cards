@@ -1,6 +1,5 @@
 import { ReactNode, useMemo, useState } from "react";
-import { Circle, Download, MoveVertical, Ruler, Send } from "lucide-react";
-import { loadBridgeUrl, saveBridgeUrl, sendModelToBridge, stlFilename } from "../lib/bridge";
+import { Circle, Download, MoveVertical, Ruler } from "lucide-react";
 import { downloadText, safeName } from "../lib/export2d";
 import {
   createInitialWasherDesign,
@@ -16,7 +15,6 @@ export function WasherTool() {
   const [washer, setWasher] = useState<WasherDesign>(() => createInitialWasherDesign());
   const [unit, setUnit] = useState<"mm" | "in">("mm");
   const [status, setStatus] = useState("");
-  const [bridgeUrl, setBridgeUrl] = useState(loadBridgeUrl);
   const warnings = useMemo(() => validateWasher(washer), [washer]);
 
   function updateWasher(patch: Partial<WasherDesign>) {
@@ -40,27 +38,6 @@ export function WasherTool() {
 
     downloadText(`${safeName(washer.name)}.stl`, washerToAsciiStl(washer), "model/stl");
     setStatus("STL downloaded.");
-  }
-
-  async function sendToBridge() {
-    const errors = warnings.filter((warning) => warning.severity === "error");
-    if (errors.length > 0) {
-      setStatus(`Fix ${errors.length} washer setting${errors.length === 1 ? "" : "s"} before sending to bridge.`);
-      return;
-    }
-
-    try {
-      saveBridgeUrl(bridgeUrl);
-      const result = await sendModelToBridge({
-        bridgeUrl,
-        filename: stlFilename(washer.name),
-        stl: washerToAsciiStl(washer),
-        action: "print",
-      });
-      setStatus(result.printed ? "Bridge sent the job to print." : result.message);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Bridge request failed.");
-    }
   }
 
   return (
@@ -140,21 +117,10 @@ export function WasherTool() {
         </label>
       </div>
 
-      <section className="bridge-config compact">
-        <label>
-          <span>Bridge URL</span>
-          <input value={bridgeUrl} onChange={(event) => setBridgeUrl(event.target.value)} placeholder="http://printer-bridge.local:8787" />
-        </label>
-      </section>
-
       <div className="lid-actions">
         <button onClick={exportStl}>
           <Download size={20} />
           <span>Export STL</span>
-        </button>
-        <button onClick={sendToBridge}>
-          <Send size={20} />
-          <span>Send to bridge</span>
         </button>
       </div>
 

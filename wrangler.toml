@@ -1,8 +1,8 @@
-name = "og-modeler"
+name = "og-3dmodeler"
 compatibility_date = "2026-05-07"
 pages_build_output_dir = "dist"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "og-modeler"
+database_name = "og-3dmodeler"
 database_id = "replace-with-cloudflare-d1-database-id"

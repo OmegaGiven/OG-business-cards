@@ -1,13 +1,14 @@
 import { downloadBlob, safeName } from "./export2d";
 
-const BRIDGE_URL_KEY = "og-modeler-bridge-url";
+const BRIDGE_URL_KEY = "og-3dmodeler-bridge-url";
+const LEGACY_BRIDGE_URL_KEY = "og-modeler-bridge-url";
 
 export function defaultBridgeUrl() {
   return `http://${window.location.hostname}:8787`;
 }
 
 export function loadBridgeUrl() {
-  return localStorage.getItem(BRIDGE_URL_KEY) ?? defaultBridgeUrl();
+  return localStorage.getItem(BRIDGE_URL_KEY) ?? localStorage.getItem(LEGACY_BRIDGE_URL_KEY) ?? defaultBridgeUrl();
 }
 
 export function saveBridgeUrl(url: string) {

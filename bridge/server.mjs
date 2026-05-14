@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 const execAsync = promisify(exec);
 const port = Number(process.env.OG_BRIDGE_PORT ?? 8787);
 const host = process.env.OG_BRIDGE_HOST ?? "0.0.0.0";
-const workRoot = resolve(process.env.OG_BRIDGE_WORK_DIR ?? join(tmpdir(), "og-modeler-bridge"));
+const workRoot = resolve(process.env.OG_BRIDGE_WORK_DIR ?? join(tmpdir(), "og-3dmodeler-bridge"));
 const slicerCommand = process.env.OG_SLICER_COMMAND;
 const printCommand = process.env.OG_PRINT_COMMAND;
 const slicedOutputTemplate = process.env.OG_SLICED_OUTPUT;
@@ -48,7 +48,7 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`OG-Modeler bridge listening on http://${host}:${port}`);
+  console.log(`OG-3dmodeler bridge listening on http://${host}:${port}`);
   console.log(slicerCommand ? "Slicer command configured." : "Slicer command missing. Set OG_SLICER_COMMAND.");
   console.log(printCommand ? "Print command configured." : "Print command missing. Slice requests will return sliced files.");
 });

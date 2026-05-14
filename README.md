@@ -1,56 +1,67 @@
-# OG-Modeler
+# OG-3dmodeler
 
-A low-cost web app with multiple browser-based design tools for creating simple 3D-printable models and exports.
+OG-3dmodeler is a phone-friendly browser app for making small, practical 3D-printable models. It is currently a local-first prototype: users can design models, preview them in 3D, export STL files, or send generated STLs to a local bridge service for slicing and optional printing.
 
-## MVP Features
+## Current Tools
 
-- Tool navigation between separate model generators
-- Business card STL tool:
-- Preset card sizes including US standard `3.5in x 2in`, EU standard `85mm x 55mm`, square, and custom dimensions
-- Custom card size entry in millimeters or inches
-- Front-only card design surface, because a back side would make the printable STL workflow unreliable
-- Mobile-friendly editing with a top action bar, tap-to-select, drag-to-move, and double-tap text editing
-- Dedicated export screen with a card preview and save/export actions
-- Import simple SVG logo paths
-- Add QR placeholders
-- Choose fonts, colors, element depth, and print mode
-- Print modes: raised, engraved, or full through-cut
-- Nozzle diameter and tolerance settings for printability warnings
-- Lid maker tool:
+- **Business card modeler**
+- Front-only card design for reliable STL generation
+- Preset card sizes: US standard, EU standard, square, and custom dimensions
+- 2D editor with text, QR codes, SVG logo import, color, depth, raised/engraved/cut-through modes, zoom, pan, undo/redo, and delete
+- 3D preview with raised details and cut-through geometry
+- Printability warnings for off-card elements, QR cut-through, thin details, tight gaps, engraving depth, and cut-through text islands
+- Nozzle diameter and tolerance settings for printability checks
+- SVG, PNG, PDF, and STL export
+
+- **Lid maker**
 - Circular or square lids
 - Inner-fit lids for openings and outer-fit lids that wrap around the outside of an object
-- Round lid diameter input is explicit: opening inner diameter in inner mode, object outer diameter in outer mode
-- Dimension entry in millimeters or inches
-- Lip walls default to `2mm`
-- Lid tolerance changes generated fit clearance for inner/outer lids
-- Browser-generated STL with a top plate and underside rim
-- Washer tool:
-- Inner diameter, outer diameter, and height inputs
-- Nozzle and tolerance checks for thin washer walls and small holes
-- Browser-generated STL washer export
-- Browser-side STL export for cheap hosting
-- Printability warnings for thin details, off-card elements, and invalid engraving depth
-- Cloudflare Pages/Workers/D1 backend skeleton
-- Local-only prototype flow with no sign-in or payments
+- Explicit diameter/dimension labels for opening inner dimensions vs object outer dimensions
+- Top thickness, lip height, lip wall, lip inset, nozzle diameter, and tolerance controls
+- Tolerance changes generated fit clearance
+- Interactive 3D preview and STL export
+
+- **Washer maker**
+- Inner diameter, outer diameter, and height controls
+- Nozzle and tolerance checks for thin washer walls, small holes, and very low heights
+- Tolerance adjusts generated OD/ID fit
+- Interactive 3D preview and STL export
+
+## Prototype Behavior
+
+- No sign-in
+- No payment flow
+- Designs are saved locally in the browser
+- STL generation happens in the browser
+- Optional bridge sends generated STL files to a local slicer/printer workflow
 
 ## Tech Stack
 
 - React + Vite + TypeScript
-- Konva.js for the 2D editor
-- Three.js for 3D preview
-- Cloudflare Pages + Workers + D1 for cheap hosting
+- Konva.js for the 2D business card editor
+- Three.js for 3D previews and STL geometry
+- Browser-side STL generation
+- Optional local Node.js slice/print bridge
+- Cloudflare Pages/Workers/D1 skeleton remains available for future hosted backend features
 
 ## Local Development
 
+Install dependencies:
+
 ```bash
 npm install
+```
+
+Run the web app:
+
+```bash
 npm run dev
 ```
 
-Run the local slice/print bridge:
+Run on your local network for phone testing:
 
 ```bash
-npm run bridge
+npm run dev -- --host 0.0.0.0
 ```
 
 Run tests:
@@ -65,46 +76,15 @@ Build:
 npm run build
 ```
 
-## Cloudflare Setup
-
-1. Create a Cloudflare D1 database.
-2. Replace `database_id` in `wrangler.toml`.
-3. Apply the schema:
-
-```bash
-npx wrangler d1 migrations apply og-modeler
-```
-
-4. Add production secrets when backend features are enabled:
-
-```bash
-npx wrangler pages secret put APP_URL
-```
-
-5. Deploy:
-
-```bash
-npm run worker:deploy
-```
-
-Set `APP_URL` to the deployed site origin when using Cloudflare Functions, for example:
-
-```txt
-https://your-domain.com
-```
-
 ## Local Print Bridge
 
-The browser app can send generated STL files to a local bridge service at a URL such as:
+The bridge is a small local Node.js service that lets the phone/browser send completed STL models to a computer, Raspberry Pi, NAS, or other machine that can run slicer/printer commands.
+
+Flow:
 
 ```txt
-http://10.115.91.3:8787
+Phone browser -> OG-3dmodeler -> local bridge -> slicer -> printer or sliced file download
 ```
-
-The bridge accepts the model, runs a configured slicer, and then either:
-
-- runs a configured print command, or
-- returns the sliced file to the browser for download.
 
 Start the bridge:
 
@@ -112,7 +92,27 @@ Start the bridge:
 npm run bridge
 ```
 
-Configure slicing with environment variables:
+By default it listens on:
+
+```txt
+http://0.0.0.0:8787
+```
+
+From another device on your network, use your computer's LAN IP, for example:
+
+```txt
+http://10.115.91.3:8787
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8787/health
+```
+
+### Configure Slicing
+
+Set `OG_SLICER_COMMAND` to the command that slices an input STL into a printer-ready output file.
 
 ```bash
 OG_SLICER_COMMAND="your-slicer-command {input} {output} {outputDir}" npm run bridge
@@ -120,7 +120,7 @@ OG_SLICER_COMMAND="your-slicer-command {input} {output} {outputDir}" npm run bri
 
 Placeholders:
 
-- `{input}`: generated STL from OG-Modeler
+- `{input}`: generated STL from OG-3dmodeler
 - `{output}`: expected sliced output, usually `.gcode.3mf`
 - `{outputDir}`: temporary job directory
 
@@ -130,10 +130,40 @@ If your slicer writes to a different path, set:
 OG_SLICED_OUTPUT="/path/or/template/to/output.gcode.3mf"
 ```
 
-To send the sliced file to a printer, configure:
+### Configure Printing
+
+If `OG_PRINT_COMMAND` is set, the bridge runs it after slicing:
 
 ```bash
 OG_PRINT_COMMAND="your-printer-send-command {output}" npm run bridge
 ```
 
-If `OG_PRINT_COMMAND` is not set, the bridge returns the sliced file to the phone/browser instead of printing.
+If `OG_PRINT_COMMAND` is not set, the bridge returns the sliced file to the browser for download instead of printing.
+
+### Bridge Environment Variables
+
+- `OG_BRIDGE_PORT`: bridge port, default `8787`
+- `OG_BRIDGE_HOST`: bind host, default `0.0.0.0`
+- `OG_BRIDGE_WORK_DIR`: temporary bridge job directory
+- `OG_BRIDGE_MAX_BODY_BYTES`: max upload size, default `25MB`
+- `OG_SLICER_COMMAND`: slicer command template
+- `OG_SLICED_OUTPUT`: optional sliced output path template
+- `OG_PRINT_COMMAND`: optional printer-send command template
+
+## Cloudflare Setup
+
+Cloudflare deployment is still scaffolded, but the prototype currently works without auth, payments, or a required backend.
+
+1. Create a Cloudflare D1 database if future backend features need it.
+2. Replace `database_id` in `wrangler.toml`.
+3. Apply the schema:
+
+```bash
+npx wrangler d1 migrations apply og-3dmodeler
+```
+
+Deploy:
+
+```bash
+npm run worker:deploy
+```
